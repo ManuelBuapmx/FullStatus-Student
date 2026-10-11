@@ -9,6 +9,9 @@
 // lleva y se firma con la llave fija de los secretos de GitHub (la misma que se registra ante Google
 // en la verificación de desarrolladores, ver README "Instalar el APK y reducir las advertencias").
 // El tipo debug sigue existiendo para compilar en tu computadora.
+//
+// CAMBIO (11/oct/2026): se quitó el modo depuración del sensor (variable depurarSensor y el campo
+// BuildConfig.DEPURAR_SENSOR): la defensa del sensor de proximidad se eliminó de la app.
 
 plugins {
     // Plugin de Android para Gradle. La versión (8.5.2) debe ser compatible con
@@ -29,14 +32,6 @@ plugins {
 val firmaSecreto: String = (System.getenv("CMK_FIRMA_SECRETO")
     ?: (project.findProperty("cmk.firma") as String?)
     ?: "").trim()
-
-// Modo depuración del sensor (avisos Toast en MainActivity). POR DEFECTO ES false: antes era una
-// constante escrita a mano en MainActivity.java que había que acordarse de apagar, y como cada push
-// a main compila, el APK "normal" salía con los avisos. Ahora solo se enciende a propósito:
-//   - en GitHub: Actions > Compilar APK > Run workflow > marcar "depurar_sensor";
-//   - en tu computadora: `gradle assembleRelease -Pcmk.depurar=true`.
-val depurarSensor: Boolean =
-    System.getenv("CMK_DEPURAR_SENSOR") == "true" || project.findProperty("cmk.depurar") == "true"
 
 // Firma ESTABLE del APK. Sin esto, cada build en GitHub Actions usa un debug.keystore nuevo
 // (el runner es efímero), y Android rechaza instalar un APK encima de otro con distinta firma:
@@ -74,8 +69,6 @@ android {
         // Expone la clave como BuildConfig.FIRMA_SECRETO (la lee MainActivity). Es hexadecimal,
         // así que no necesita escapes dentro de las comillas (y ya viene sin saltos de línea).
         buildConfigField("String", "FIRMA_SECRETO", "\"$firmaSecreto\"")
-        // Expone el modo depuración como BuildConfig.DEPURAR_SENSOR (la lee MainActivity).
-        buildConfigField("boolean", "DEPURAR_SENSOR", depurarSensor.toString())
     }
 
     // Solo se define la firma si llegó la llave; si no, el bloque queda vacío.
