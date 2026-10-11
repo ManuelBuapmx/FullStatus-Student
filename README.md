@@ -23,7 +23,11 @@ Backend: Supabase (tablas `materias`, `preguntas`, `resultados`, `alumnos`; func
 
 ## Acceso del alumno (`index.html` + Supabase)
 
-- **Solo con matrícula.** El alumno escribe su matrícula; la app llama a la función `validar_matricula` de Supabase. Si existe y está activa, entra; si no, ve "Matrícula no registrada" (sin pistas de matrículas parecidas).
+- **Solo con matrícula.** El alumno escribe su matrícula en la pantalla de entrada; la app llama a la función `validar_matricula` de Supabase. Si existe y está activa, entra; si no, ve "Matrícula no registrada" (sin pistas de matrículas parecidas).
+- **Pantalla de inicio (10/oct/2026).** Al entrar se muestra una tarjeta con **nombre, matrícula y grupo** del alumno y el menú **Exámenes** / **Asistencias**, más un botón *Cerrar sesión* (vuelve a la pantalla de entrada).
+  - **Exámenes:** lista de materias → pantalla de avisos con *Comenzar examen* → examen. La vigilancia anti-trampa (`Android.iniciarExamen`) empieza solo al pulsar *Comenzar examen*; moverse por entrada, inicio, lista de materias y avisos no anula nada.
+  - **Asistencias:** por ahora solo existe la pantalla con el aviso "disponible próximamente"; aún no hay datos de asistencia en Supabase.
+  - Al terminar el examen, el botón *Salir* cierra la app (igual que antes); no se regresa al inicio para no permitir reintentar el examen.
 - **Encabezado del examen:** barra fija arriba con el reloj y, debajo, `nombre · matrícula · Grupo`, tal como los devuelve el servidor.
 - **La validación es del lado del servidor.** Tabla `alumnos(matricula PK, nombre, grupo, activo, creado_en)` con RLS: el rol `anon` no puede leerla ni escribirla (privilegios revocados), solo el admin desde el panel. La lista completa nunca viaja a la app.
 - **Funciones RPC:**
@@ -136,6 +140,7 @@ Push a `main` (o "Run workflow" en la pestaña Actions). El APK queda como artif
 
 ## Historial de cambios
 
+- **10/oct/2026 (2)** — `index.html`: nuevo flujo de pantallas: entrada con matrícula → pantalla de inicio (nombre, matrícula, grupo) con botones Exámenes y Asistencias → materias → avisos → examen. Asistencias queda como pantalla pendiente de datos. `MainActivity.java` restaurado completo (el build fallaba por llaves desbalanceadas).
 - **10/oct/2026** — Renombre a **FullStatus Student** (versión 2.0 de CheckMyKnowledge): `android:label`, `rootProject.name`, título y encabezados de `index.html`, y este README. `applicationId`, `namespace`, carpeta del package y artifact del workflow se conservan. Repo nuevo `FullStatus-Student` con su propio secreto `CMK_FIRMA_SECRETO`.
 - **2/oct/2026 (6)** — Identidad PRISMAL MESH en encabezados y documentación (regla 13).
 - **2/oct/2026 (5)** — Acceso por **matrícula** validada en Supabase: tabla `alumnos` (RLS cerrada), funciones `validar_matricula` y `calificar_examen` nueva (recibe matrícula, reemplaza a la anterior), columnas `matricula` y `grupo` en `resultados`. `index.html` muestra nombre, matrícula y grupo en el encabezado fijo del examen.
