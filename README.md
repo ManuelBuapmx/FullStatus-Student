@@ -51,30 +51,12 @@ Backend: Supabase (tablas `materias`, `preguntas`, `resultados`, `alumnos`; func
 Mientras el examen está activo, la app se **cierra por completo** y el alumno empieza de cero si:
 
 - pierde el foco (notificaciones, ventanas flotantes),
-- va a Inicio, Recientes o cambia de app,
-- el sensor de proximidad queda tapado 800 ms seguidos (celular pegado a la pantalla).
+- va a Inicio, Recientes o cambia de app.
 
 Además: capturas y grabación de pantalla bloqueadas (`FLAG_SECURE`), botón Atrás desactivado,
 sin orientación horizontal ni multiventana, sin navegación a otros sitios.
 
-### Sensor de proximidad: detalles y límites
-
-- Se considera "cerca" una lectura menor a `min(rangoMáximoDelSensor, 5 cm)` (`DISTANCIA_CERCA_CM`).
-- Solo detecta algo pegado al **borde superior** de la pantalla (donde está el sensor). Un segundo celular al lado o más abajo **no** se detecta: es una defensa parcial.
-- Si el equipo no tiene sensor, la defensa no se activa en ese equipo.
-- **Estado (2/oct/2026): en pruebas reales sigue sin anular el examen; investigación en pausa.** Para diagnosticar existe `DEPURAR_SENSOR`.
-
-### Modo depuración del sensor (`DEPURAR_SENSOR`)
-
-Con `DEPURAR_SENSOR = true` en `MainActivity.java` la app muestra avisos (Toast) con el sensor detectado, su rango y cada lectura (`valor`, `umbral`, `cerca`, `examenActivo`). Los Toast no roban el foco, así que no anulan el examen.
-
-| Qué ves al tapar el sensor con el examen empezado | Causa |
-|---|---|
-| Ninguna lectura | El sensor no entrega eventos o no se tapa el sensor correcto |
-| `cerca=true examenActivo=false` | Falla el puente JS (`iniciarExamen` no llega) |
-| `cerca=true examenActivo=true` y no se cierra | Bug en el temporizador |
-
-**⚠ Antes de repartir el APK a los alumnos, poner `DEPURAR_SENSOR = false`.**
+> **Sensor de proximidad (eliminado el 11/oct/2026).** Antes la app anulaba el examen si el sensor quedaba tapado 800 ms. En pruebas reales nunca llegó a anularlo y la investigación se abandonó, así que se quitó todo: la defensa, el modo depuración (`DEPURAR_SENSOR`), la casilla `depurar_sensor` del workflow y el campo `BuildConfig.DEPURAR_SENSOR`.
 
 ## Panel del profesor (`admin.html`)
 
@@ -127,10 +109,9 @@ El panel cuenta las filas afectadas por cada operación; si la base no deja modi
 7. **El puente JS↔Java** (`Puente`, `window.Android`) tiene tres métodos: `iniciarExamen`, `terminarExamen`, `salir`. Si cambias nombres, cámbialos en `index.html` también.
 8. **No volver a agregar pasos al workflow que hagan commit/push** al repo (ver nota en `build.yml`).
 9. La clave `anon` de Supabase en `index.html` y `admin.html` es pública por diseño; la seguridad real está en las políticas RLS. **Nunca poner la Secret key (service_role) en el cliente ni en el repo.**
-10. **`DEPURAR_SENSOR` debe estar en `false`** en cualquier APK que se reparta a alumnos.
-11. **No usar `alert()`/`confirm()`/`prompt()` en `index.html`**: abren un diálogo nativo que roba el foco y anula el examen. Usar mensajes dentro de la página.
-12. **La lista de alumnos nunca va en el cliente.** Vive en la tabla `alumnos` (RLS cerrada para `anon`); la app solo usa `validar_matricula` y `calificar_examen`. No dar permisos de lectura a `anon` sobre `alumnos`.
-13. **Identidad de marca:** todo comentario, documento o variable que nombre a la empresa usa `PRISMAL MESH` (dos palabras separadas por un espacio). Los archivos nuevos llevan en el encabezado: `Propiedad intelectual de PRISMAL MESH. Todos los derechos reservados.`
+10. **No usar `alert()`/`confirm()`/`prompt()` en `index.html`**: abren un diálogo nativo que roba el foco y anula el examen. Usar mensajes dentro de la página.
+11. **La lista de alumnos nunca va en el cliente.** Vive en la tabla `alumnos` (RLS cerrada para `anon`); la app solo usa `validar_matricula` y `calificar_examen`. No dar permisos de lectura a `anon` sobre `alumnos`.
+12. **Identidad de marca:** todo comentario, documento o variable que nombre a la empresa usa `PRISMAL MESH` (dos palabras separadas por un espacio). Los archivos nuevos llevan en el encabezado: `Propiedad intelectual de PRISMAL MESH. Todos los derechos reservados.`
 
 ## Compilar
 
@@ -140,12 +121,13 @@ Push a `main` (o "Run workflow" en la pestaña Actions). El APK queda como artif
 
 ## Historial de cambios
 
+- **11/oct/2026** — Se eliminó por completo el sensor de proximidad y su modo depuración: `MainActivity.java` (sin `SensorManager`, `Handler`, `Toast` ni `DEPURAR_SENSOR`), `build.gradle.kts` (sin `depurarSensor` ni `BuildConfig.DEPURAR_SENSOR`), `build.yml` (sin la casilla `depurar_sensor` ni su aviso) y este README (sin las secciones del sensor y sin la antigua regla 10).
 - **10/oct/2026 (2)** — `index.html`: nuevo flujo de pantallas: entrada con matrícula → pantalla de inicio (nombre, matrícula, grupo) con botones Exámenes y Asistencias → materias → avisos → examen. Asistencias queda como pantalla pendiente de datos. `MainActivity.java` restaurado completo (el build fallaba por llaves desbalanceadas).
 - **10/oct/2026** — Renombre a **FullStatus Student** (versión 2.0 de CheckMyKnowledge): `android:label`, `rootProject.name`, título y encabezados de `index.html`, y este README. `applicationId`, `namespace`, carpeta del package y artifact del workflow se conservan. Repo nuevo `FullStatus-Student` con su propio secreto `CMK_FIRMA_SECRETO`.
-- **2/oct/2026 (6)** — Identidad PRISMAL MESH en encabezados y documentación (regla 13).
+- **2/oct/2026 (6)** — Identidad PRISMAL MESH en encabezados y documentación (regla 12).
 - **2/oct/2026 (5)** — Acceso por **matrícula** validada en Supabase: tabla `alumnos` (RLS cerrada), funciones `validar_matricula` y `calificar_examen` nueva (recibe matrícula, reemplaza a la anterior), columnas `matricula` y `grupo` en `resultados`. `index.html` muestra nombre, matrícula y grupo en el encabezado fijo del examen.
 - **2/oct/2026 (4)** — `index.html`: cada sección se muestra completa en una sola pantalla (todas sus preguntas), con navegación entre secciones; contexto mostrado una vez por bloque; temporizador de 60 min (`DURACION_MIN`) con entrega automática; preguntas sin responder se mandan como `-1`.
 - **2/oct/2026 (3)** — `MainActivity`: `index.html` se carga con origen https (`origenBase()`) y DOM storage activo, para corregir el error de configuración del reproductor de YouTube.
 - **2/oct/2026 (2)** — Importador: corregido `Logger is not defined`; solo ejecuta funciones sin parámetros (antes truena con `addQuestion(...)`); soporta `addPageBreakItem` como sección y links de YouTube dentro de `setHelpText`.
 - **2/oct/2026** — `admin.html`: pestañas Materias y Secciones, selección y borrado masivo de preguntas, asignar/quitar secciones, soporte de video de YouTube y encabezados de sección en el script de importación, detección de operaciones bloqueadas por RLS.
-- **1/oct/2026** — Modo depuración del sensor (`DEPURAR_SENSOR`), umbral de "cerca" a `min(rangoMax, 5 cm)`, reglas 1–3 y 10 del README.
+- **1/oct/2026** — Modo depuración del sensor, umbral de "cerca" a `min(rangoMax, 5 cm)` y reglas 1–3 del README (el sensor se eliminó el 11/oct/2026).
