@@ -106,7 +106,7 @@ El panel cuenta las filas afectadas por cada operación; si la base no deja modi
 4. **Nunca se envía la respuesta correcta al cliente.** `index.html` solo pide `texto, opciones, contexto, seccion`; la calificación la hace `calificar_examen` en Supabase. No agregar `correcta` al `select` del cliente.
 5. **Cualquier regla anti-trampa nueva debe terminar en `anularExamen()`** de `MainActivity.java`.
 6. **Los links externos romperían el examen**: abrir otra app (p. ej. YouTube) hace que la app pierda el foco y se anule. Los videos van *embebidos* (iframe), nunca como link.
-7. **El puente JS↔Java** (`Puente`, `window.Android`) tiene tres métodos: `iniciarExamen`, `terminarExamen`, `salir`. Si cambias nombres, cámbialos en `index.html` también.
+7. **El puente JS↔Java** (`Puente`, `window.Android`) tiene cuatro métodos: `iniciarExamen`, `terminarExamen`, `salir` y `firmar` (HMAC de las llamadas al servidor). Si cambias nombres, cámbialos en `index.html` también.
 8. **No volver a agregar pasos al workflow que hagan commit/push** al repo (ver nota en `build.yml`).
 9. La clave `anon` de Supabase en `index.html` y `admin.html` es pública por diseño; la seguridad real está en las políticas RLS. **Nunca poner la Secret key (service_role) en el cliente ni en el repo.**
 10. **No usar `alert()`/`confirm()`/`prompt()` en `index.html`**: abren un diálogo nativo que roba el foco y anula el examen. Usar mensajes dentro de la página.
@@ -121,6 +121,7 @@ Push a `main` (o "Run workflow" en la pestaña Actions). El APK queda como artif
 
 ## Historial de cambios
 
+- **11/oct/2026 (2)** — `index.html` rehecho sobre el protocolo actual del servidor (firma exigida): materias con `materias_disponibles`, unidades con la nueva RPC `unidades_materia` (salen de `preguntas.seccion` = "Unidad N ..."), pantalla de unidad con resultados (`consultar_resultados`), asistencias/faltas/retardos del periodo y botón EXAMEN DE UNIDAD; examen con `iniciar_intento` → `obtener_preguntas` → `guardar_progreso` → `calificar_examen`. `MainActivity.java`: nuevo `Puente.firmar()`. Supabase: funciones nuevas `consultar_resultados` y `unidades_materia`; prueba con la materia ENGLISH XI (grupos 12).
 - **11/oct/2026** — Se eliminó por completo el sensor de proximidad y su modo depuración: `MainActivity.java` (sin `SensorManager`, `Handler`, `Toast` ni `DEPURAR_SENSOR`), `build.gradle.kts` (sin `depurarSensor` ni `BuildConfig.DEPURAR_SENSOR`), `build.yml` (sin la casilla `depurar_sensor` ni su aviso) y este README (sin las secciones del sensor y sin la antigua regla 10).
 - **10/oct/2026 (2)** — `index.html`: nuevo flujo de pantallas: entrada con matrícula → pantalla de inicio (nombre, matrícula, grupo) con botones Exámenes y Asistencias → materias → avisos → examen. Asistencias queda como pantalla pendiente de datos. `MainActivity.java` restaurado completo (el build fallaba por llaves desbalanceadas).
 - **10/oct/2026** — Renombre a **FullStatus Student** (versión 2.0 de CheckMyKnowledge): `android:label`, `rootProject.name`, título y encabezados de `index.html`, y este README. `applicationId`, `namespace`, carpeta del package y artifact del workflow se conservan. Repo nuevo `FullStatus-Student` con su propio secreto `CMK_FIRMA_SECRETO`.
