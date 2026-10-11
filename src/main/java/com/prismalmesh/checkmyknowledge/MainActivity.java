@@ -12,6 +12,10 @@ import android.webkit.WebViewClient;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * FullStatus Student · Propiedad intelectual de PRISMAL MESH. Todos los derechos reservados.
@@ -48,6 +52,11 @@ import java.io.InputStream;
  * proximidad y su modo de depuración (DEPURAR_SENSOR, Toast, Handler): la
  * investigación se abandonó porque en pruebas reales nunca anuló el examen.
  * Las demás reglas anti-trampa no cambian.
+ *
+ * CAMBIO (11/oct/2026, 2): el puente JS tiene un método nuevo, firmar(), que calcula la firma
+ * HMAC-SHA256 que el servidor exige en iniciar_intento, obtener_preguntas, guardar_progreso y
+ * calificar_examen. La clave (BuildConfig.FIRMA_SECRETO, que llega del secreto de GitHub
+ * CMK_FIRMA_SECRETO) vive solo dentro del APK y nunca se expone al JS.
  */
 public class MainActivity extends Activity {
 
@@ -159,6 +168,27 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void terminarExamen() {
             runOnUiThread(() -> examenActivo = false);
+        }
+
+        /**
+         * Firma de una llamada al servidor: HMAC-SHA256 (hex en minúsculas) de
+         * "accion|matricula|materiaId|ts" con BuildConfig.FIRMA_SECRETO. Es EXACTAMENTE lo que
+         * verifica _verificar_firma en Supabase. Devuelve "" si algo falla (el servidor la
+         * rechazará con "Firma requerida"). No toca estado: puede correr en el hilo del WebView.
+         */
+        @JavascriptInterface
+        public String firmar(String accion, String matricula, String materiaId, String ts) {
+            try {
+                String mensaje = accion + "|" + matricula + "|" + materiaId + "|" + ts;
+                Mac mac = Mac.getInstance("HmacSHA256");
+                mac.init(new SecretKeySpec(BuildConfig.FIRMA_SECRETO.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+                byte[] h = mac.doFinal(mensaje.getBytes(StandardCharsets.UTF_8));
+                StringBuilder sb = new StringBuilder();
+                for (byte b : h) sb.append(String.format("%02x", b));
+                return sb.toString();
+            } catch (Exception e) {
+                return "";
+            }
         }
 
         /** Botón "Salir" de la pantalla final: cierra la app y la quita de Recientes. */
