@@ -2,6 +2,11 @@
 <!--
   FullStatus Student · App del alumno
   Propiedad intelectual de PRISMAL MESH. Todos los derechos reservados.
+
+  CAMBIO (10/oct/2026): nuevo flujo de pantallas. Primero se entra con la matrícula;
+  luego hay una pantalla de inicio con matrícula, nombre y grupo del alumno y los
+  botones Exámenes / Asistencias. La vigilancia anti-trampa empieza solo al pulsar
+  "Comenzar examen".
 -->
 <html lang="es">
 <head>
@@ -65,6 +70,16 @@
   /* Mensaje que aparece bajo el video cuando el reproductor de YouTube falla
      (ver crearReproductor()). */
   .video-aviso { font-size: 13px; color: #b71c1c; margin: -6px 0 12px; }
+  /* --- Pantalla de inicio (después de entrar con la matrícula) ---
+     Tarjeta con los datos del alumno y un menú de botones grandes. */
+  .perfil { background: #eef4fb; border-radius: 10px; padding: 12px 14px; margin: 12px 0 18px; }
+  .perfil-nombre { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
+  .dato { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid #d3e2f4; font-size: 15px; }
+  .dato-etq { color: #555; }
+  .dato-val { font-weight: 600; text-align: right; }
+  .menu-boton { padding: 20px 16px; font-size: 18px; text-align: left; }
+  .menu-boton small { display: block; font-size: 13px; font-weight: 400; opacity: .85; margin-top: 3px; }
+  .info { font-size: 14px; color: #444; }
 </style>
 </head>
 <body>
@@ -290,67 +305,37 @@ function detenerReloj() {
   document.body.classList.remove("con-reloj");
 }
 
-function elegirMateria() {
-  var c = el("div", "", "card");
-  c.appendChild(el("h1", "FullStatus Student"));
-  c.appendChild(el("p", "Cargando materias disponibles..."));
-  pantalla(c);
-  cargarMaterias().then(function (filas) {
-    MATERIAS = filas;
-    var c2 = el("div", "", "card");
-    c2.appendChild(el("h1", "FullStatus Student"));
-    if (!MATERIAS.length) {
-      c2.appendChild(el("p", "No hay ningún examen disponible en este momento. Pregúntale a tu profesor.", "aviso"));
-      pantalla(c2);
-      return;
-    }
-    c2.appendChild(el("p", "Elige la materia:"));
-    MATERIAS.forEach(function (m) {
-      var b = el("button", m.nombre);
-      b.onclick = function () { materiaId = m.id; inicio(); };
-      c2.appendChild(b);
-    });
-    pantalla(c2);
-  }).catch(function () {
-    var c3 = el("div", "", "card");
-    c3.appendChild(el("h1", "FullStatus Student"));
-    c3.appendChild(el("p", "No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.", "aviso"));
-    var b = el("button", "Reintentar");
-    b.onclick = elegirMateria;
-    c3.appendChild(b);
-    pantalla(c3);
-  });
+// ---- Flujo de pantallas (NUEVO, 10/oct/2026) ----
+// 1) pantallaLogin: el alumno escribe su matrícula (se valida en el servidor).
+// 2) pantallaInicio: muestra matrícula, nombre y grupo, y el menú
+//    (Exámenes / Asistencias).
+// 3) Exámenes: elegirMateria -> confirmarExamen (avisos + "Comenzar examen") -> examen.
+// La vigilancia anti-trampa (Android.iniciarExamen) empieza SOLO en el paso 3,
+// así que moverse por las pantallas 1 y 2 no anula nada.
+
+// Fila "etiqueta ... valor" de la tarjeta de datos del alumno.
+function fila(etiqueta, valor) {
+  var f = el("div", "", "dato");
+  f.appendChild(el("span", etiqueta, "dato-etq"));
+  f.appendChild(el("span", valor, "dato-val"));
+  return f;
 }
 
-// Agrupa las preguntas (ya ordenadas) en secciones: cada vez que cambia el
-// texto de "seccion" respecto a la pregunta anterior empieza un grupo nuevo.
-// Las preguntas sin sección que van seguidas forman un solo grupo sin título.
-// Cada grupo guarda los ÍNDICES en PREGUNTAS (así resp[] sigue siendo plano).
-function agruparSecciones(preguntas) {
-  var grupos = [];
-  preguntas.forEach(function (p, i) {
-    var ultimo = grupos[grupos.length - 1];
-    if (ultimo && ultimo.nombre === p.s) ultimo.indices.push(i);
-    else grupos.push({ nombre: p.s, indices: [i] });
-  });
-  return grupos;
-}
-
-function inicio() {
+// Pantalla 1: entrar con la matrícula.
+function pantallaLogin() {
+  alumno = null;
   var c = el("div", "", "card");
   c.appendChild(el("h1", "FullStatus Student"));
-  c.appendChild(el("p", "Escribe tu matrícula:"));
+  c.appendChild(el("p", "Escribe tu matrícula para entrar:"));
   var inp = el("input");
   inp.type = "text";
   inp.setAttribute("inputmode", "numeric");
   inp.setAttribute("autocomplete", "off");
   inp.value = matriculaEscrita;
   c.appendChild(inp);
-  c.appendChild(el("p", "Tendrás " + DURACION_MIN + " minutos para contestar. Al terminar el tiempo, el examen se entrega solo con lo que lleves.", "aviso"));
-  c.appendChild(el("p", "Al comenzar no podrás salir, minimizar, cambiar de pantalla ni tomar capturas. Si lo haces, el examen se cierra y deberás empezar de nuevo.", "aviso"));
   var msg = el("p", "", "aviso");
   c.appendChild(msg);
-  var b = el("button", "Comenzar examen");
+  var b = el("button", "Entrar");
   b.onclick = function () {
     matriculaEscrita = inp.value.trim();
     if (!matriculaEscrita) { msg.textContent = "Escribe tu matrícula."; return; }
@@ -358,17 +343,127 @@ function inicio() {
     b.disabled = true;
     b.textContent = "Verificando...";
     msg.textContent = "";
-    // Primero se valida la matrícula en el servidor; solo si existe se piden las preguntas.
-    // El mensaje de rechazo no da pistas de matrículas parecidas.
+    // La matrícula se valida en el servidor (validar_matricula). El mensaje de
+    // rechazo no da pistas de matrículas parecidas.
     buscarAlumno(matriculaEscrita).then(function (encontrado) {
       if (!encontrado) {
-        var e = new Error("no-registrada"); e.noRegistrada = true; throw e;
+        msg.textContent = "Matrícula no registrada. Revísala o avisa a tu profesor.";
+        b.disabled = false;
+        b.textContent = "Entrar";
+        return;
       }
       alumno = encontrado;
-      b.textContent = "Cargando preguntas...";
-      return cargarPreguntas(materiaId);
-    }).then(function (preguntas) {
-      if (!preguntas.length) throw new Error("No hay preguntas activas");
+      pantallaInicio();
+    }).catch(function () {
+      msg.textContent = "No se pudo continuar. Revisa tu conexión e inténtalo de nuevo.";
+      b.disabled = false;
+      b.textContent = "Entrar";
+    });
+  };
+  c.appendChild(b);
+  pantalla(c);
+}
+
+// Pantalla 2: inicio del alumno (datos + menú).
+function pantallaInicio() {
+  var c = el("div", "", "card");
+  c.appendChild(el("h1", "FullStatus Student"));
+
+  var perfil = el("div", "", "perfil");
+  perfil.appendChild(el("p", alumno.nombre, "perfil-nombre"));
+  perfil.appendChild(fila("Matrícula", alumno.matricula));
+  perfil.appendChild(fila("Grupo", alumno.grupo));
+  c.appendChild(perfil);
+
+  c.appendChild(el("p", "¿Qué quieres hacer?", "seccion-label"));
+
+  var bEx = el("button", "Exámenes", "menu-boton");
+  bEx.appendChild(el("small", "Presentar un examen"));
+  bEx.onclick = elegirMateria;
+  c.appendChild(bEx);
+
+  var bAs = el("button", "Asistencias", "menu-boton");
+  bAs.appendChild(el("small", "Consultar tus asistencias"));
+  bAs.onclick = pantallaAsistencias;
+  c.appendChild(bAs);
+
+  var bSalir = el("button", "Cerrar sesión", "sec");
+  bSalir.onclick = pantallaLogin;
+  c.appendChild(bSalir);
+  pantalla(c);
+}
+
+// Apartado de asistencias. Por ahora solo es la pantalla: todavía no hay datos
+// de asistencia en Supabase, así que se avisa en vez de mostrar algo inventado.
+function pantallaAsistencias() {
+  var c = el("div", "", "card");
+  c.appendChild(el("h1", "Asistencias"));
+  c.appendChild(el("p", alumno.nombre + " · " + alumno.matricula + " · Grupo " + alumno.grupo, "info"));
+  c.appendChild(el("p", "Esta sección estará disponible próximamente."));
+  var b = el("button", "← Volver al inicio", "sec");
+  b.onclick = pantallaInicio;
+  c.appendChild(b);
+  pantalla(c);
+}
+
+// Exámenes, paso 1: lista de materias disponibles.
+function elegirMateria() {
+  var c = el("div", "", "card");
+  c.appendChild(el("h1", "Exámenes"));
+  c.appendChild(el("p", "Cargando materias disponibles..."));
+  pantalla(c);
+  cargarMaterias().then(function (filas) {
+    MATERIAS = filas;
+    var c2 = el("div", "", "card");
+    c2.appendChild(el("h1", "Exámenes"));
+    if (!MATERIAS.length) {
+      c2.appendChild(el("p", "No hay ningún examen disponible en este momento. Pregúntale a tu profesor.", "aviso"));
+    } else {
+      c2.appendChild(el("p", "Elige la materia:"));
+      MATERIAS.forEach(function (m) {
+        var b = el("button", m.nombre);
+        b.onclick = function () { materiaId = m.id; confirmarExamen(m); };
+        c2.appendChild(b);
+      });
+    }
+    var volver = el("button", "← Volver al inicio", "sec");
+    volver.onclick = pantallaInicio;
+    c2.appendChild(volver);
+    pantalla(c2);
+  }).catch(function () {
+    var c3 = el("div", "", "card");
+    c3.appendChild(el("h1", "Exámenes"));
+    c3.appendChild(el("p", "No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.", "aviso"));
+    var b = el("button", "Reintentar");
+    b.onclick = elegirMateria;
+    c3.appendChild(b);
+    var volver = el("button", "← Volver al inicio", "sec");
+    volver.onclick = pantallaInicio;
+    c3.appendChild(volver);
+    pantalla(c3);
+  });
+}
+
+// Exámenes, paso 2: avisos y botón "Comenzar examen". Es el punto donde empieza
+// la vigilancia anti-trampa (Android.iniciarExamen), igual que antes.
+function confirmarExamen(m) {
+  var c = el("div", "", "card");
+  c.appendChild(el("h1", "Exámenes"));
+  c.appendChild(el("p", m.nombre, "seccion-label"));
+  c.appendChild(el("p", "Tendrás " + DURACION_MIN + " minutos para contestar. Al terminar el tiempo, el examen se entrega solo con lo que lleves.", "aviso"));
+  c.appendChild(el("p", "Al comenzar no podrás salir, minimizar, cambiar de pantalla ni tomar capturas. Si lo haces, el examen se cierra y deberás empezar de nuevo.", "aviso"));
+  var msg = el("p", "", "aviso");
+  c.appendChild(msg);
+  var b = el("button", "Comenzar examen");
+  var volver = el("button", "← Volver", "sec");
+  volver.onclick = elegirMateria;
+  b.onclick = function () {
+    b.disabled = true;
+    volver.disabled = true;
+    b.textContent = "Cargando preguntas...";
+    msg.textContent = "";
+    cargarPreguntas(materiaId).then(function (preguntas) {
+      if (!preguntas.length) { var e = new Error("sin-preguntas"); e.sinPreguntas = true; throw e; }
       PREGUNTAS = preguntas;
       SECCIONES = agruparSecciones(preguntas);
       setTimeout(function () {
@@ -384,15 +479,31 @@ function inicio() {
         pantallaSeccion();
       }, 300);
     }).catch(function (e) {
-      msg.textContent = e && e.noRegistrada
-        ? "Matrícula no registrada. Revísala o avisa a tu profesor."
+      msg.textContent = e && e.sinPreguntas
+        ? "Este examen todavía no tiene preguntas disponibles."
         : "No se pudo continuar. Revisa tu conexión e inténtalo de nuevo.";
       b.disabled = false;
+      volver.disabled = false;
       b.textContent = "Comenzar examen";
     });
   };
   c.appendChild(b);
+  c.appendChild(volver);
   pantalla(c);
+}
+
+// Agrupa las preguntas (ya ordenadas) en secciones: cada vez que cambia el
+// texto de "seccion" respecto a la pregunta anterior empieza un grupo nuevo.
+// Las preguntas sin sección que van seguidas forman un solo grupo sin título.
+// Cada grupo guarda los ÍNDICES en PREGUNTAS (así resp[] sigue siendo plano).
+function agruparSecciones(preguntas) {
+  var grupos = [];
+  preguntas.forEach(function (p, i) {
+    var ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.nombre === p.s) ultimo.indices.push(i);
+    else grupos.push({ nombre: p.s, indices: [i] });
+  });
+  return grupos;
 }
 
 // Arma el bloque de "contexto" que va arriba de una pregunta (si trae uno):
@@ -514,7 +625,7 @@ function intentarCalificar() {
     c.appendChild(el("h1", "Examen terminado"));
     c.appendChild(el("p", alumno.nombre + ": " + resultado.correctas + " de " + resultado.total + " correctas"));
     var b = el("button", "Salir");
-    b.onclick = function () { if (window.Android) Android.salir(); else elegirMateria(); };
+    b.onclick = function () { if (window.Android) Android.salir(); else pantallaInicio(); };
     c.appendChild(b);
     pantalla(c);
   }).catch(function () {
@@ -528,7 +639,7 @@ function intentarCalificar() {
   });
 }
 
-elegirMateria();
+pantallaLogin();
 </script>
 </body>
 </html>
