@@ -7,6 +7,11 @@
   luego hay una pantalla de inicio con matrícula, nombre y grupo del alumno y los
   botones Exámenes / Asistencias. La vigilancia anti-trampa empieza solo al pulsar
   "Comenzar examen".
+
+  CAMBIO (10/oct/2026, 2): la pantalla "Asistencias" ya muestra datos reales. Llama a la
+  función RPC consultar_asistencias de Supabase (que valida la matrícula en el servidor y
+  solo devuelve las asistencias de ESA matrícula) y muestra, por materia, los totales y el
+  detalle por fecha. Es una pantalla fuera del examen: no toca la vigilancia anti-trampa.
 -->
 <html lang="es">
 <head>
@@ -80,6 +85,24 @@
   .menu-boton { padding: 20px 16px; font-size: 18px; text-align: left; }
   .menu-boton small { display: block; font-size: 13px; font-weight: 400; opacity: .85; margin-top: 3px; }
   .info { font-size: 14px; color: #444; }
+
+  /* --- Pantalla de asistencias ---
+     Una tarjeta por materia/grupo, con los totales en una cuadrícula de 2 x 2 y
+     un detalle por fecha que se abre y se cierra con un botón. */
+  .asist-grupo { border-top: 1px solid #e0e0e0; padding-top: 14px; margin-top: 14px; }
+  .asist-grupo:first-of-type { border-top: 0; margin-top: 6px; padding-top: 0; }
+  .asist-grupo h2 { font-size: 18px; margin: 0 0 2px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+  .stat { background: #f1f5fb; border-radius: 10px; padding: 10px 6px; text-align: center; }
+  .stat-num { font-size: 26px; font-weight: 700; line-height: 1.1; }
+  .stat-etq { font-size: 12px; color: #555; margin-top: 2px; }
+  .s-p { color: #2e7d32; } .s-j { color: #1565c0; } .s-a { color: #c62828; } .s-r { color: #ef6c00; }
+  .eq { font-size: 15px; font-weight: 700; margin: 6px 0 2px; }
+  .detalle-lista { margin-top: 6px; }
+  .detalle-fila { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding: 9px 0; border-top: 1px solid #e0e0e0; font-size: 14px; }
+  .detalle-nota { font-size: 12px; color: #555; margin-top: 2px; }
+  .badge { padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; }
+  .b-p { background: #2e7d32; } .b-r { background: #ef6c00; } .b-a { background: #c62828; } .b-j { background: #1565c0; }
 </style>
 </head>
 <body>
@@ -115,6 +138,29 @@ function buscarAlumno(matricula) {
       if (t.indexOf("Matrícula no registrada") !== -1) return null;
       throw new Error(t || "No se pudo validar la matrícula");
     });
+  });
+}
+
+// ---- Consulta de asistencias (en el servidor) ----
+// La tabla "asistencias" tiene RLS cerrada: el rol anon NO puede leerla directo.
+// Solo puede llamar a consultar_asistencias, que vuelve a validar la matrícula en
+// el servidor y devuelve únicamente las asistencias de ESA matrícula. Así la lista
+// completa de asistencias nunca viaja a la app (misma idea que validar_matricula).
+// Regresa una promesa con un arreglo, uno por materia/grupo:
+//   [{ grupo, materia, asistencias, justificadas, faltas, retardos,
+//      faltas_equivalentes, detalle: [{ fecha, estado, justificada, nota }] }]
+function consultarAsistencias(matricula) {
+  return fetch(SUPABASE_URL + "/rest/v1/rpc/consultar_asistencias", {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ p_matricula: String(matricula || "") })
+  }).then(function (resp) {
+    if (resp.ok) return resp.json();
+    return resp.text().then(function (t) { throw new Error(t || "No se pudieron cargar las asistencias"); });
   });
 }
 
@@ -311,7 +357,7 @@ function detenerReloj() {
 //    (Exámenes / Asistencias).
 // 3) Exámenes: elegirMateria -> confirmarExamen (avisos + "Comenzar examen") -> examen.
 // La vigilancia anti-trampa (Android.iniciarExamen) empieza SOLO en el paso 3,
-// así que moverse por las pantallas 1 y 2 no anula nada.
+// así que moverse por las pantallas 1 y 2 (y la de asistencias) no anula nada.
 
 // Fila "etiqueta ... valor" de la tarjeta de datos del alumno.
 function fila(etiqueta, valor) {
@@ -393,17 +439,114 @@ function pantallaInicio() {
   pantalla(c);
 }
 
-// Apartado de asistencias. Por ahora solo es la pantalla: todavía no hay datos
-// de asistencia en Supabase, así que se avisa en vez de mostrar algo inventado.
+// ---- Asistencias ----
+
+// Convierte "2026-09-15" en "15/09/2026". Se parte el texto a mano (sin usar Date)
+// para que la zona horaria del celular no desplace la fecha un día.
+function fechaCorta(iso) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  return m ? m[3] + "/" + m[2] + "/" + m[1] : String(iso || "");
+}
+
+// Texto y color de la etiqueta de cada día según su estado.
+// Estados: P = asistencia, R = retardo, A = falta (con "justificada" si la
+// perdonó el profesor; una falta justificada cuenta como asistencia).
+function etiquetaEstado(d) {
+  if (d.estado === "P") return { texto: "Asistencia", clase: "b-p" };
+  if (d.estado === "R") return { texto: "Retardo", clase: "b-r" };
+  if (d.estado === "A" && d.justificada) return { texto: "Falta justificada", clase: "b-j" };
+  return { texto: "Falta", clase: "b-a" };
+}
+
+// Un recuadro de la cuadrícula de totales (número grande + etiqueta).
+function recuadroTotal(numero, etiqueta, clase) {
+  var r = el("div", "", "stat");
+  r.appendChild(el("div", String(numero || 0), "stat-num " + clase));
+  r.appendChild(el("div", etiqueta, "stat-etq"));
+  return r;
+}
+
+// Tarjeta de UNA materia/grupo: totales + detalle por fecha (se abre con un botón).
+// Los números ya vienen calculados del servidor; aquí solo se muestran.
+function tarjetaAsistencia(m) {
+  var caja = el("div", "", "asist-grupo");
+  caja.appendChild(el("h2", m.materia ? m.materia : "Grupo " + m.grupo));
+  if (m.materia) caja.appendChild(el("p", "Grupo " + m.grupo, "info"));
+
+  var totales = el("div", "", "stats");
+  totales.appendChild(recuadroTotal(m.asistencias, "Asistencias", "s-p"));
+  totales.appendChild(recuadroTotal(m.justificadas, "Justificadas", "s-j"));
+  totales.appendChild(recuadroTotal(m.faltas, "Faltas", "s-a"));
+  totales.appendChild(recuadroTotal(m.retardos, "Retardos", "s-r"));
+  caja.appendChild(totales);
+
+  caja.appendChild(el("p", "Faltas equivalentes: " + (m.faltas_equivalentes || 0), "eq"));
+  caja.appendChild(el("p", "Cada 3 retardos cuentan como 1 falta. Las faltas justificadas cuentan como asistencia.", "info"));
+
+  var detalle = m.detalle || [];
+  var lista = el("div", "", "detalle-lista");
+  lista.style.display = "none"; // cerrado al inicio
+  detalle.forEach(function (d) {
+    var f = el("div", "", "detalle-fila");
+    var izq = el("div");
+    izq.appendChild(el("div", fechaCorta(d.fecha)));
+    if (d.nota) izq.appendChild(el("div", d.nota, "detalle-nota"));
+    var et = etiquetaEstado(d);
+    f.appendChild(izq);
+    f.appendChild(el("span", et.texto, "badge " + et.clase));
+    lista.appendChild(f);
+  });
+
+  // Se alterna el detalle con un botón dentro de la página (nada de alert/confirm).
+  var btn = el("button", "Ver detalle (" + detalle.length + " fechas)", "sec");
+  btn.onclick = function () {
+    var abierto = lista.style.display !== "none";
+    lista.style.display = abierto ? "none" : "block";
+    btn.textContent = abierto ? "Ver detalle (" + detalle.length + " fechas)" : "Ocultar detalle";
+  };
+  caja.appendChild(btn);
+  caja.appendChild(lista);
+  return caja;
+}
+
+// Pantalla de asistencias. Pide los datos al servidor cada vez que se abre, así
+// siempre refleja lo último que subió el profesor desde FullStatus.
+// No inicia la vigilancia anti-trampa (eso solo ocurre en "Comenzar examen").
 function pantallaAsistencias() {
-  var c = el("div", "", "card");
-  c.appendChild(el("h1", "Asistencias"));
-  c.appendChild(el("p", alumno.nombre + " · " + alumno.matricula + " · Grupo " + alumno.grupo, "info"));
-  c.appendChild(el("p", "Esta sección estará disponible próximamente."));
-  var b = el("button", "← Volver al inicio", "sec");
-  b.onclick = pantallaInicio;
-  c.appendChild(b);
-  pantalla(c);
+  function encabezado() {
+    var c = el("div", "", "card");
+    c.appendChild(el("h1", "Asistencias"));
+    c.appendChild(el("p", alumno.nombre + " · " + alumno.matricula + " · Grupo " + alumno.grupo, "info"));
+    return c;
+  }
+
+  var cargando = encabezado();
+  cargando.appendChild(el("p", "Cargando tus asistencias..."));
+  pantalla(cargando);
+
+  consultarAsistencias(alumno.matricula).then(function (materias) {
+    var c = encabezado();
+    if (!materias || !materias.length) {
+      // Caso normal: el profesor todavía no ha subido asistencias de este alumno.
+      c.appendChild(el("p", "Todavía no hay asistencias registradas para ti."));
+    } else {
+      materias.forEach(function (m) { c.appendChild(tarjetaAsistencia(m)); });
+    }
+    var volver = el("button", "← Volver al inicio", "sec");
+    volver.onclick = pantallaInicio;
+    c.appendChild(volver);
+    pantalla(c);
+  }).catch(function () {
+    var c = encabezado();
+    c.appendChild(el("p", "No se pudieron cargar tus asistencias. Revisa tu conexión e inténtalo de nuevo.", "aviso"));
+    var reintentar = el("button", "Reintentar");
+    reintentar.onclick = pantallaAsistencias;
+    c.appendChild(reintentar);
+    var volver = el("button", "← Volver al inicio", "sec");
+    volver.onclick = pantallaInicio;
+    c.appendChild(volver);
+    pantalla(c);
+  });
 }
 
 // Exámenes, paso 1: lista de materias disponibles.
