@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- FullStatus Student · Propiedad intelectual de PRISMAL MESH. Todos los derechos reservados. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Único permiso: internet, para hablar con Supabase (cargar materias y
@@ -6,11 +7,15 @@
          almacenamiento ni ubicación. El sensor de proximidad no requiere permiso. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- allowBackup="false": evita que Android respalde datos de la app en la nube.
+    <!-- android:label es el nombre que ve el alumno bajo el ícono de la app
+         ("FullStatus Student"). El identificador interno (applicationId en
+         build.gradle.kts) NO se cambió a propósito: cambiarlo haría que Android
+         trate esta app como otra distinta.
+         allowBackup="false": evita que Android respalde datos de la app en la nube.
          El tema NoActionBar quita la barra superior; toda la interfaz vive en el
          WebView (assets/index.html). -->
     <application
-        android:label="CheckMyKnowledge"
+        android:label="FullStatus Student"
         android:allowBackup="false"
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
 
