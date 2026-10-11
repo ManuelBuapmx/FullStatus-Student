@@ -3,18 +3,14 @@
 # Compila el APK de depuración en GitHub Actions.
 # Se dispara en cada push a main, o a mano desde la pestaña Actions
 # (workflow_dispatch). El APK queda como "artifact" descargable del run.
+#
+# CAMBIO (11/oct/2026): se quitó la casilla "depurar_sensor", el aviso asociado y la variable
+# CMK_DEPURAR_SENSOR: la defensa del sensor de proximidad se eliminó de la app.
 name: Compilar APK
 on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      # CAMBIO (2/oct/2026): el modo depuración del sensor ya no es una constante escrita en
-      # MainActivity.java; se enciende solo desde aquí, a propósito. Por defecto: apagado.
-      depurar_sensor:
-        description: "Compilar con avisos de depuración del sensor (NO repartir a alumnos)"
-        type: boolean
-        default: false
 
 # CAMBIO (2/oct/2026): permisos mínimos para el token del workflow. Solo necesita leer el código
 # (el workflow no escribe nada al repo: ver nota más abajo).
@@ -74,11 +70,6 @@ jobs:
           echo "$CMK_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/cmk.keystore"
           echo "CMK_KEYSTORE_FILE=$RUNNER_TEMP/cmk.keystore" >> "$GITHUB_ENV"
 
-      # Aviso visible en el run si se pidió depuración, para que nadie reparta ese APK por error.
-      - name: Avisar si es APK de depuración del sensor
-        if: ${{ inputs.depurar_sensor }}
-        run: echo "::warning::Este APK tiene los avisos de depuración del sensor ENCENDIDOS. No lo repartas a alumnos."
-
       # Java 17: requerido por el plugin de Android 8.x (ver build.gradle.kts).
       - uses: actions/setup-java@v4
         with:
@@ -93,11 +84,9 @@ jobs:
 
       # --no-daemon: en un runner efímero no sirve dejar el daemon vivo.
       # build.gradle.kts lee estas variables y las mete en BuildConfig / la firma.
-      # En un push "inputs.depurar_sensor" viene vacío, y eso equivale a "false".
       - run: gradle assembleDebug --no-daemon
         env:
           CMK_FIRMA_SECRETO: ${{ secrets.CMK_FIRMA_SECRETO }}
-          CMK_DEPURAR_SENSOR: ${{ inputs.depurar_sensor }}
           CMK_KEYSTORE_PASS: ${{ secrets.CMK_KEYSTORE_PASS }}
           CMK_KEY_ALIAS: ${{ secrets.CMK_KEY_ALIAS }}
           CMK_KEY_PASS: ${{ secrets.CMK_KEY_PASS }}
