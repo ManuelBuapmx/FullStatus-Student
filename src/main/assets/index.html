@@ -27,6 +27,20 @@
        siendo la de siempre (calificar_examen): se manda un arreglo con UN número por pregunta
        de la materia y las que no son de la unidad van en -1 (cuentan como mala, así que las
        "correctas" que regresa el servidor son solo las de la unidad).
+
+  CAMBIO (12/oct/2026): CONTRASEÑA DEL ALUMNO.
+    1) La pantalla de inicio (login) ahora pide matrícula Y contraseña. Se validan en el
+       servidor con la función RPC validar_acceso (compara contra un hash bcrypt; la
+       contraseña nunca se guarda ni se devuelve en claro).
+    2) Debajo del botón Entrar hay un enlace "Crear contraseña" que lleva a otra ventana donde
+       el alumno elige su contraseña UNA sola vez (función RPC crear_contrasena) y la guarda.
+       Al guardar vuelve al acceso (con la matrícula ya escrita) para entrar con matrícula y
+       contraseña. Si ya tiene una, solo el profesor puede restablecerla
+       (función restablecer_contrasena, desde el panel de administrador).
+       En ambas ventanas, una matrícula que no existe muestra "Matrícula no registrada...".
+    3) Tras 5 contraseñas incorrectas seguidas, el servidor bloquea la matrícula 10 minutos.
+    4) La contraseña se lee del campo, se manda y el campo se vacía: no se guarda en variables
+       globales. buscarAlumno()/validar_matricula ya no se usan desde esta pantalla.
 -->
 <html lang="es">
 <head>
@@ -41,11 +55,17 @@
   button { width: 100%; padding: 14px; margin-top: 10px; font-size: 16px; border: 0; border-radius: 10px; background: #1565c0; color: #fff; }
   button.op { background: #fff; color: #222; border: 2px solid #ccc; text-align: left; }
   button.op.sel { border-color: #1565c0; background: #e3f2fd; }
-  /* Botón secundario (p. ej. "Sección anterior"). */
+  /* Botón secundario (p. ej. "Sección anterior", "Crear contraseña"). */
   button.sec { background: #fff; color: #1565c0; border: 2px solid #1565c0; }
   button:disabled { opacity: .4; }
-  input { width: 100%; padding: 12px; font-size: 16px; border: 2px solid #ccc; border-radius: 10px; -webkit-user-select: text; user-select: text; }
+  input { width: 100%; padding: 12px; margin-top: 8px; font-size: 16px; border: 2px solid #ccc; border-radius: 10px; -webkit-user-select: text; user-select: text; }
+  /* Etiqueta pequeña sobre un campo de texto (login y crear contraseña). */
+  .campo-etq { font-size: 13px; color: #555; margin: 12px 0 0; }
   .aviso { font-size: 14px; color: #b71c1c; }
+  /* Mensaje de éxito (p. ej. "Contraseña creada") en verde. */
+  .ok { font-size: 14px; color: #2e7d32; font-weight: 600; }
+  /* Botón con aspecto de enlace (texto subrayado, sin caja): "Crear contraseña" en el login. */
+  button.enlace { background: none; color: #1565c0; text-decoration: underline; width: auto; display: block; margin: 4px auto 0; padding: 8px; font-size: 16px; }
   /* Pasa el texto a mayúsculas solo al mostrarlo (INGLÉS I, UNIDAD 1) sin cambiar el dato original. */
   .mayus { text-transform: uppercase; }
   /* Etiqueta de sección (p. ej. "Unidad 1 - Present Simple"): agrupa/organiza
@@ -131,30 +151,42 @@
 var SUPABASE_URL = "https://juvqvshcfsrtscvzluaa.supabase.co";
 var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp1dnF2c2hjZnNydHNjdnpsdWFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzMDY4NjQsImV4cCI6MjEwNTg4Mjg2NH0.aL2bzJbTJ6DfzUlh8UaSBZ5Fah3Bae1tNBDi7R6BD68";
 
-// ---- Validación de matrícula (en el servidor) ----
-// La lista de alumnos vive en la tabla "alumnos" de Supabase y el rol anon NO
-// puede leerla. Solo puede llamar a validar_matricula, que devuelve nombre y
-// grupo de UNA matrícula exacta (o error si no existe / está desactivada).
-// Regresa una promesa con { matricula, nombre, grupo } o null si no está registrada.
-function buscarAlumno(matricula) {
+// ---- Acceso con matrícula + contraseña (en el servidor) ----
+// La lista de alumnos y sus contraseñas viven en la tabla "alumnos" de Supabase y el
+// rol anon NO puede leerla. Solo puede llamar a estas funciones, que regresan siempre
+// un objeto { ok: true|false, ... } (no lanzan error para que el servidor pueda contar
+// los intentos fallidos):
+//   validar_acceso(p_matricula, p_contrasena)  -> { ok, matricula, nombre, grupo }
+//                                                 o { ok:false, motivo, minutos? }
+//   crear_contrasena(p_matricula, p_contrasena) -> igual; solo funciona si aún no tiene.
+// motivo: no_registrada | sin_contrasena | incorrecta | bloqueado | ya_tiene | invalida
+function llamarAcceso(funcion, matricula, contrasena) {
   var m = String(matricula || "").replace(/\s+/g, "");
-  if (!m) return Promise.resolve(null);
-  return fetch(SUPABASE_URL + "/rest/v1/rpc/validar_matricula", {
+  return fetch(SUPABASE_URL + "/rest/v1/rpc/" + funcion, {
     method: "POST",
     headers: {
       apikey: SUPABASE_ANON_KEY,
       Authorization: "Bearer " + SUPABASE_ANON_KEY,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ p_matricula: m })
+    body: JSON.stringify({ p_matricula: m, p_contrasena: String(contrasena || "") })
   }).then(function (resp) {
     if (resp.ok) return resp.json();
-    return resp.text().then(function (t) {
-      // La función lanza 'Matrícula no registrada' → es un rechazo normal, no un fallo de red.
-      if (t.indexOf("Matrícula no registrada") !== -1) return null;
-      throw new Error(t || "No se pudo validar la matrícula");
-    });
+    return resp.text().then(function (t) { throw new Error(t || "No se pudo validar el acceso"); });
   });
+}
+function iniciarSesion(matricula, contrasena) { return llamarAcceso("validar_acceso", matricula, contrasena); }
+function crearContrasena(matricula, contrasena) { return llamarAcceso("crear_contrasena", matricula, contrasena); }
+
+// Texto para el alumno según el "motivo" que regresa el servidor.
+function mensajeAcceso(r) {
+  if (r.motivo === "no_registrada") return "Matrícula no registrada";
+  if (r.motivo === "sin_contrasena") return "Esta matrícula aún no tiene contraseña. Toca «Crear contraseña».";
+  if (r.motivo === "incorrecta") return "Matrícula o contraseña incorrecta.";
+  if (r.motivo === "bloqueado") return "Demasiados intentos fallidos. Espera " + (r.minutos || 10) + " minuto(s) e inténtalo de nuevo.";
+  if (r.motivo === "ya_tiene") return "Esta matrícula ya tiene contraseña. Regresa al acceso y entra con ella; si la olvidaste, pide a tu profesor que la restablezca.";
+  if (r.motivo === "invalida") return "La contraseña debe tener al menos 6 caracteres.";
+  return "No se pudo continuar. Inténtalo de nuevo.";
 }
 
 // ---- Consulta de asistencias (en el servidor) ----
@@ -324,7 +356,7 @@ var SECCIONES = [];      // grupos de preguntas consecutivas con la misma secci�
 var secIdx = 0;          // sección que se está mostrando
 var app = document.getElementById("app");
 var alumno = null;       // { matricula, nombre, grupo } del alumno que accedió
-var matriculaEscrita = ""; // lo último que escribió en el campo (por si vuelve atrás)
+var matriculaEscrita = ""; // lo último que escribió en el campo (por si vuelve atrás). La contraseña NO se guarda aquí.
 var resp = [];
 var avisoFaltantes = false; // true tras avisar de preguntas sin responder (el 2.º toque ya termina)
 
@@ -385,8 +417,9 @@ function detenerReloj() {
   document.body.classList.remove("con-reloj");
 }
 
-// ---- Flujo de pantallas (reorganizado el 10/oct/2026, 3) ----
-// 1) pantallaLogin: el alumno escribe su matrícula (se valida en el servidor).
+// ---- Flujo de pantallas (reorganizado el 10/oct/2026, 3; contraseña 12/oct/2026) ----
+// 1) pantallaLogin: matrícula + contraseña (se validan en el servidor).
+//    1b) pantallaCrearContrasena: el alumno que aún no tiene contraseña la crea (una sola vez).
 // 2) pantallaInicio: datos del alumno + un botón por MATERIA.
 // 3) pantallaUnidades: las unidades (UNIDAD 1, UNIDAD 2...) de la materia elegida.
 // 4) pantallaUnidad: resumen de asistencias de esa unidad + botón del examen.
@@ -458,46 +491,145 @@ function fila(etiqueta, valor) {
   return f;
 }
 
-// Pantalla 1: entrar con la matrícula.
-function pantallaLogin() {
+// Campo de contraseña: type="password" oculta lo escrito; autocomplete="off" evita que
+// el teclado la sugiera/guarde. Se usa en el login y en "Crear contraseña".
+function campoContrasena() {
+  var inp = el("input");
+  inp.type = "password";
+  inp.setAttribute("autocomplete", "off");
+  return inp;
+}
+
+// Pantalla 1: entrar con la matrícula y la contraseña.
+// "mensajeOk" (opcional): texto verde que se muestra arriba, p. ej. al volver de crear la contraseña.
+function pantallaLogin(mensajeOk) {
   alumno = null;
   var c = el("div", "", "card");
   c.appendChild(el("h1", "FullStatus Student"));
-  c.appendChild(el("p", "Escribe tu matrícula para entrar:"));
+  if (mensajeOk) c.appendChild(el("p", mensajeOk, "ok"));
+  c.appendChild(el("p", "Escribe tu matrícula y tu contraseña para entrar:"));
+
+  c.appendChild(el("p", "Matrícula", "campo-etq"));
   var inp = el("input");
   inp.type = "text";
   inp.setAttribute("inputmode", "numeric");
   inp.setAttribute("autocomplete", "off");
   inp.value = matriculaEscrita;
   c.appendChild(inp);
+
+  c.appendChild(el("p", "Contraseña", "campo-etq"));
+  var pass = campoContrasena();
+  c.appendChild(pass);
+
   var msg = el("p", "", "aviso");
   c.appendChild(msg);
   var b = el("button", "Entrar");
   b.onclick = function () {
     matriculaEscrita = inp.value.trim();
+    var contrasena = pass.value;
     if (!matriculaEscrita) { msg.textContent = "Escribe tu matrícula."; return; }
+    if (!contrasena) { msg.textContent = "Escribe tu contraseña."; return; }
     inp.blur();
+    pass.blur();
     b.disabled = true;
+    bCrear.disabled = true;
     b.textContent = "Verificando...";
     msg.textContent = "";
-    // La matrícula se valida en el servidor (validar_matricula). El mensaje de
+    // La matrícula y la contraseña se validan en el servidor (validar_acceso). El mensaje de
     // rechazo no da pistas de matrículas parecidas.
-    buscarAlumno(matriculaEscrita).then(function (encontrado) {
-      if (!encontrado) {
-        msg.textContent = "Matrícula no registrada. Revísala o avisa a tu profesor.";
+    iniciarSesion(matriculaEscrita, contrasena).then(function (r) {
+      pass.value = ""; // la contraseña no se queda en pantalla ni en memoria
+      if (!r || !r.ok) {
+        msg.textContent = mensajeAcceso(r || {});
         b.disabled = false;
+        bCrear.disabled = false;
         b.textContent = "Entrar";
         return;
       }
-      alumno = encontrado;
+      alumno = { matricula: r.matricula, nombre: r.nombre, grupo: r.grupo };
       pantallaInicio();
     }).catch(function () {
       msg.textContent = "No se pudo continuar. Revisa tu conexión e inténtalo de nuevo.";
       b.disabled = false;
+      bCrear.disabled = false;
       b.textContent = "Entrar";
     });
   };
   c.appendChild(b);
+
+  // Para el alumno que todavía no tiene contraseña: enlace que lleva a la ventana donde la
+  // crea (una sola vez). Después vuelve aquí para entrar con matrícula y contraseña.
+  c.appendChild(el("p", "¿Aún no tienes contraseña?", "info"));
+  var bCrear = el("button", "Crear contraseña", "enlace");
+  bCrear.onclick = function () {
+    matriculaEscrita = inp.value.trim();
+    pantallaCrearContrasena();
+  };
+  c.appendChild(bCrear);
+  pantalla(c);
+}
+
+// Pantalla 1b: crear la contraseña. Solo funciona si la matrícula existe y aún no tiene
+// contraseña (el servidor lo comprueba en crear_contrasena). Si el alumno la olvida,
+// el profesor la restablece y vuelve a crearla aquí.
+function pantallaCrearContrasena() {
+  var c = el("div", "", "card");
+  c.appendChild(el("h1", "Crear contraseña"));
+  c.appendChild(el("p", "Elige una contraseña para tu matrícula (mínimo 6 caracteres). Solo puedes crearla una vez; si la olvidas, tu profesor la restablece.", "info"));
+
+  c.appendChild(el("p", "Matrícula", "campo-etq"));
+  var inp = el("input");
+  inp.type = "text";
+  inp.setAttribute("inputmode", "numeric");
+  inp.setAttribute("autocomplete", "off");
+  inp.value = matriculaEscrita;
+  c.appendChild(inp);
+
+  c.appendChild(el("p", "Contraseña", "campo-etq"));
+  var pass1 = campoContrasena();
+  c.appendChild(pass1);
+  c.appendChild(el("p", "Repite la contraseña", "campo-etq"));
+  var pass2 = campoContrasena();
+  c.appendChild(pass2);
+
+  var msg = el("p", "", "aviso");
+  c.appendChild(msg);
+  var b = el("button", "Guardar contraseña");
+  var volver = el("button", "← Volver al acceso", "sec");
+  volver.onclick = function () { matriculaEscrita = inp.value.trim(); pantallaLogin(); };
+  b.onclick = function () {
+    matriculaEscrita = inp.value.trim();
+    var p1 = pass1.value, p2 = pass2.value;
+    if (!matriculaEscrita) { msg.textContent = "Escribe tu matrícula."; return; }
+    if (p1.length < 6) { msg.textContent = "La contraseña debe tener al menos 6 caracteres."; return; }
+    if (p1 !== p2) { msg.textContent = "Las contraseñas no coinciden."; return; }
+    inp.blur(); pass1.blur(); pass2.blur();
+    b.disabled = true;
+    volver.disabled = true;
+    b.textContent = "Guardando...";
+    msg.textContent = "";
+    crearContrasena(matriculaEscrita, p1).then(function (r) {
+      pass1.value = ""; pass2.value = "";
+      if (!r || !r.ok) {
+        msg.textContent = mensajeAcceso(r || {});
+        b.disabled = false;
+        volver.disabled = false;
+        b.textContent = "Guardar contraseña";
+        return;
+      }
+      // Contraseña creada y guardada: se regresa al acceso (con la matrícula ya escrita) para
+      // que el alumno entre con matrícula y contraseña.
+      matriculaEscrita = matriculaEscrita.replace(/\s+/g, "");
+      pantallaLogin("Contraseña creada. Ahora entra con tu matrícula y tu contraseña.");
+    }).catch(function () {
+      msg.textContent = "No se pudo continuar. Revisa tu conexión e inténtalo de nuevo.";
+      b.disabled = false;
+      volver.disabled = false;
+      b.textContent = "Guardar contraseña";
+    });
+  };
+  c.appendChild(b);
+  c.appendChild(volver);
   pantalla(c);
 }
 
