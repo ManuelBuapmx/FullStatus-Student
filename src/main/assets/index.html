@@ -3,44 +3,68 @@
   FullStatus Student · App del alumno
   Propiedad intelectual de PRISMAL MESH. Todos los derechos reservados.
 
-  CAMBIO (10/oct/2026): nuevo flujo de pantallas. Primero se entra con la matrícula;
-  luego hay una pantalla de inicio con matrícula, nombre y grupo del alumno y los
-  botones Exámenes / Asistencias. La vigilancia anti-trampa empieza solo al pulsar
-  "Comenzar examen".
+  HISTORIAL
+  - 10/oct/2026: flujo de pantallas con matrícula, pantalla de inicio y vigilancia anti-trampa
+    que empieza solo al pulsar "Comenzar examen". Asistencias reales vía RPC consultar_asistencias.
+  - 12/oct/2026: CONTRASEÑA DEL ALUMNO. El login pide matrícula y contraseña (RPC validar_acceso,
+    compara contra un hash bcrypt). Debajo del botón Entrar hay un enlace "Crear contraseña" que
+    lleva a otra ventana (RPC crear_contrasena, una sola vez por matrícula); al guardar regresa al
+    acceso para entrar con matrícula y contraseña. Tras 5 fallos seguidos el servidor bloquea la
+    matrícula 10 minutos. Si la matrícula no existe, en ambas ventanas sale "Matrícula no registrada".
 
-  CAMBIO (10/oct/2026, 2): la pantalla "Asistencias" ya muestra datos reales. Llama a la
-  función RPC consultar_asistencias de Supabase (que valida la matrícula en el servidor y
-  solo devuelve las asistencias de ESA matrícula) y muestra, por materia, los totales y el
-  detalle por fecha. Es una pantalla fuera del examen: no toca la vigilancia anti-trampa.
+  CAMBIO (23/oct/2026): NUEVO FLUJO DE PANTALLAS (reemplaza el de materia → unidad de oct/10).
+    1) Inicio: nombre, matrícula, grado, grupo y fecha de hoy; debajo "Materias" con un botón por
+       cada materia DEL ALUMNO (INGLÉS I, INGLÉS VI, INGLÉS IX...). RPC mis_materias: salen de las
+       materias donde tiene asistencias, más los exámenes que tenga asignados.
+       El grado y el grupo salen de alumnos.grupo ("10B" → grado 10, grupo B).
+    2) Materia: totales de asistencias, faltas y retardos (RPC consultar_asistencias) y el botón
+       "Exámenes".
+    3) Exámenes: lista de los exámenes de esa materia (RPC mis_examenes). Un examen pertenece a la
+       materia si su nombre es igual o empieza con él: "INGLÉS VI" o "INGLÉS VI - Unidad 1". Cada
+       examen se ACTIVA solo si el profesor se lo asignó al alumno (tabla asignaciones) y está dentro
+       de su ventana de fechas; si no, sale en gris con el motivo. Ya no se separan unidades por
+       preguntas.seccion: cada examen es una fila de la tabla materias y se presenta completo.
+    4) El examen usa el flujo FIRMADO del servidor: iniciar_intento → obtener_preguntas →
+       guardar_progreso (mientras contesta) → calificar_examen. La firma HMAC la calcula la app
+       Android (Puente.firmar en MainActivity); la clave nunca llega al JS. El tiempo restante lo
+       manda el servidor. Si el alumno sale de la app y vuelve, es una REANUDACIÓN (máximo
+       configurable en el servidor) y recupera las respuestas que había guardado.
 
-  CAMBIO (10/oct/2026, 3): el menú se reorganiza por MATERIA → UNIDAD → (resumen + examen).
-    1) Inicio: debajo de "¿Qué quieres hacer?" solo hay un botón por materia (p. ej. INGLÉS I).
-       Ya no existen los botones "Exámenes" y "Asistencias" ni la pantalla suelta de asistencias.
-    2) Al entrar a una materia salen sus unidades (UNIDAD 1, UNIDAD 2...). Las unidades se
-       sacan de preguntas.seccion: toda sección cuyo texto contenga "Unidad N" (p. ej.
-       "Unidad 1 - Present Simple") pertenece a la UNIDAD N. Sin tabla nueva.
-    3) Dentro de la unidad: resumen de asistencias/faltas y el botón del examen de la unidad.
-       El resumen por unidad usa las fechas de la tabla opcional "unidades" (grupo, materia,
-       nombre, desde, hasta). Si esa tabla no existe o no tiene la unidad, se muestra el resumen
-       de toda la materia y se avisa en pantalla (nunca se rompe).
-    4) El examen de la unidad solo muestra las preguntas de esa unidad. La calificación sigue
-       siendo la de siempre (calificar_examen): se manda un arreglo con UN número por pregunta
-       de la materia y las que no son de la unidad van en -1 (cuentan como mala, así que las
-       "correctas" que regresa el servidor son solo las de la unidad).
+  CAMBIO (25/oct/2026): TIPOS DE EXAMEN. Los exámenes de una materia salen en este orden:
+    1) Ordinario (para todos)  2) Remedial (alumnos que reprobaron la materia)
+    3) Extraordinario (reprobaron el remedial)  4) Extraordinario 2 (reprobaron el extraordinario).
+    El tipo se reconoce por el NOMBRE del examen en la tabla materias ("INGLÉS VI - Remedial"); un
+    nombre sin tipo cuenta como Ordinario. Los tres de recuperación solo aparecen al alumno si el
+    profesor se los asignó; el Ordinario siempre aparece. El orden y el filtro los hace el
+    servidor en mis_examenes; aquí solo se muestra el tipo sobre el nombre de cada examen.
 
-  CAMBIO (12/oct/2026): CONTRASEÑA DEL ALUMNO.
-    1) La pantalla de inicio (login) ahora pide matrícula Y contraseña. Se validan en el
-       servidor con la función RPC validar_acceso (compara contra un hash bcrypt; la
-       contraseña nunca se guarda ni se devuelve en claro).
-    2) Debajo del botón Entrar hay un enlace "Crear contraseña" que lleva a otra ventana donde
-       el alumno elige su contraseña UNA sola vez (función RPC crear_contrasena) y la guarda.
-       Al guardar vuelve al acceso (con la matrícula ya escrita) para entrar con matrícula y
-       contraseña. Si ya tiene una, solo el profesor puede restablecerla
-       (función restablecer_contrasena, desde el panel de administrador).
-       En ambas ventanas, una matrícula que no existe muestra "Matrícula no registrada...".
-    3) Tras 5 contraseñas incorrectas seguidas, el servidor bloquea la matrícula 10 minutos.
-    4) La contraseña se lee del campo, se manda y el campo se vacía: no se guarda en variables
-       globales. buscarAlumno()/validar_matricula ya no se usan desde esta pantalla.
+  CAMBIO (25/oct/2026, 2): EXÁMENES POR UNIDAD. Una materia puede tener varias unidades y cada
+    unidad su propio examen (p. ej. INGLÉS I: Unidad 1 y Unidad 2). La unidad se reconoce por el
+    NOMBRE del examen ("INGLÉS I - Unidad 1 - Ordinario"). La lista sale agrupada por unidad, con
+    un encabezado "UNIDAD N", y dentro de cada unidad en el orden Ordinario, Remedial,
+    Extraordinario, Extraordinario 2. Remedial y extraordinarios solo aparecen si el profesor se
+    los asignó al alumno. Un examen sin "Unidad N" en el nombre sale primero, sin encabezado.
+    El número de unidades de cada materia vive en la tabla materia_unidades (INGLÉS I: 2,
+    INGLÉS VI: 3, INGLÉS IX: 2): las unidades que todavía no tienen examen creado salen con el
+    aviso desactivado "Aún no hay examen para esta unidad" (estado "sin_examen").
+
+  CAMBIO (25/oct/2026, 3): MENÚ LATERAL. La pantalla de inicio muestra los datos del alumno (nombre,
+    matrícula, grado, grupo y fecha de hoy). En la esquina izquierda hay un botón de 3 rayas que abre
+    un panel deslizable (mitad de la pantalla) con "Materias" —un botón por materia del alumno— y,
+    hasta abajo, "Cerrar sesión". Tocar el fondo oscuro cierra el panel.
+
+  CAMBIO (25/oct/2026, 4): ASISTENCIAS POR UNIDAD. La pantalla de la materia ya no muestra todas las
+    fechas: muestra un bloque por UNIDAD (con su periodo, totales de asistencias, justificadas, faltas
+    y retardos, y el detalle solo de las fechas de esa unidad). Las unidades y sus fechas (desde/hasta)
+    las registra el profesor en FullStatus (tabla unidades) y llegan dentro de consultar_asistencias.
+    Si la materia aún no tiene unidades con fechas, se avisa en pantalla y no se muestran fechas.
+
+  CAMBIO (25/oct/2026, 5): CALIFICACIÓN POR UNIDAD (solo lectura). Cada bloque de unidad muestra primero
+    su calificación sobre 10 con el desglose: asistencias, actividades (entregadas de total),
+    participaciones y examen, cada una con sus puntos. Los puntos y las ponderaciones los controla el
+    profesor en FullStatus y los publica con publicar_calificaciones; la app solo los muestra
+    (RPC mis_calificaciones). Estado: "En curso" mientras falte el examen; con examen, "Aprobada" o
+    "En remedial" si la suma es menor al mínimo (config.minimo_aprobatorio, 7).
 -->
 <html lang="es">
 <head>
@@ -55,7 +79,7 @@
   button { width: 100%; padding: 14px; margin-top: 10px; font-size: 16px; border: 0; border-radius: 10px; background: #1565c0; color: #fff; }
   button.op { background: #fff; color: #222; border: 2px solid #ccc; text-align: left; }
   button.op.sel { border-color: #1565c0; background: #e3f2fd; }
-  /* Botón secundario (p. ej. "Sección anterior", "Crear contraseña"). */
+  /* Botón secundario (p. ej. "Sección anterior", "Volver"). */
   button.sec { background: #fff; color: #1565c0; border: 2px solid #1565c0; }
   button:disabled { opacity: .4; }
   input { width: 100%; padding: 12px; margin-top: 8px; font-size: 16px; border: 2px solid #ccc; border-radius: 10px; -webkit-user-select: text; user-select: text; }
@@ -66,12 +90,10 @@
   .ok { font-size: 14px; color: #2e7d32; font-weight: 600; }
   /* Botón con aspecto de enlace (texto subrayado, sin caja): "Crear contraseña" en el login. */
   button.enlace { background: none; color: #1565c0; text-decoration: underline; width: auto; display: block; margin: 4px auto 0; padding: 8px; font-size: 16px; }
-  /* Pasa el texto a mayúsculas solo al mostrarlo (INGLÉS I, UNIDAD 1) sin cambiar el dato original. */
+  /* Pasa el texto a mayúsculas solo al mostrarlo (INGLÉS I) sin cambiar el dato original. */
   .mayus { text-transform: uppercase; }
-  /* Etiqueta de sección (p. ej. "Unidad 1 - Present Simple"): agrupa/organiza
-     preguntas de una misma materia. Es solo texto libre en preguntas.seccion —
-     no es una tabla aparte ni afecta la calificación. Ahora la sección es la
-     pantalla completa: todas sus preguntas se muestran juntas debajo de ella. */
+  /* Etiqueta de sección (p. ej. "Materias", "Unidad 1 - Present Simple"). Es solo texto libre
+     de preguntas.seccion: agrupa preguntas de un mismo examen en pantallas. */
   .seccion-label {
     font-size: 13px; font-weight: 700; color: #1565c0; text-transform: uppercase;
     letter-spacing: .3px; margin: -4px 0 8px;
@@ -112,7 +134,7 @@
   /* Mensaje que aparece bajo el video cuando el reproductor de YouTube falla
      (ver crearReproductor()). */
   .video-aviso { font-size: 13px; color: #b71c1c; margin: -6px 0 12px; }
-  /* --- Pantalla de inicio (después de entrar con la matrícula) ---
+  /* --- Pantalla de inicio (después de entrar) ---
      Tarjeta con los datos del alumno y un menú de botones grandes. */
   .perfil { background: #eef4fb; border-radius: 10px; padding: 12px 14px; margin: 12px 0 18px; }
   .perfil-nombre { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
@@ -122,9 +144,44 @@
   .menu-boton { padding: 20px 16px; font-size: 18px; text-align: left; text-transform: uppercase; }
   .info { font-size: 14px; color: #444; }
 
+  /* --- Menú lateral de la pantalla de inicio ---
+     Botón de 3 rayas en la esquina izquierda; al tocarlo, un panel se desliza desde la izquierda
+     hasta la mitad de la pantalla con "Materias" arriba y "Cerrar sesión" hasta abajo. El fondo
+     oscuro cierra el panel al tocarlo. */
+  .barra { display: flex; align-items: center; gap: 12px; }
+  .barra h1 { margin: 0; }
+  button.hamb { width: 44px; height: 44px; padding: 0; margin: 0; flex: none; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; }
+  button.hamb span { display: block; width: 22px; height: 3px; border-radius: 2px; background: #fff; }
+  #menu-fondo { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 20; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .25s; }
+  #menu-fondo.abierto { opacity: 1; pointer-events: auto; }
+  #menu-panel { position: fixed; top: 0; bottom: 0; left: 0; z-index: 21; width: 50%; min-width: 220px; background: #fff; padding: 16px; display: flex; flex-direction: column; overflow-y: auto; transform: translateX(-100%); transition: transform .25s; }
+  #menu-panel.abierto { transform: translateX(0); }
+  #menu-panel .menu-zona { flex: 1; }
+  #menu-panel .menu-boton { padding: 14px 12px; font-size: 15px; }
+
+  /* --- Lista de exámenes de una materia ---
+     Una tarjeta por examen con su estado; el botón se activa solo si el profesor lo asignó. */
+  .ex-item { border: 2px solid #e0e0e0; border-radius: 10px; padding: 12px; margin-top: 10px; }
+  .ex-item.activo { border-color: #1565c0; }
+  .ex-nombre { font-size: 16px; font-weight: 700; text-transform: uppercase; }
+  .ex-estado { font-size: 13px; color: #555; margin: 4px 0 0; }
+
+  /* Bloque de una unidad dentro de la pantalla de la materia (título, periodo, totales y detalle). */
+  .unidad-bloque { border-top: 2px solid #e0e0e0; margin-top: 18px; padding-top: 14px; }
+  .unidad-bloque:first-of-type { border-top: 0; margin-top: 6px; padding-top: 0; }
+  .unidad-bloque h2 { font-size: 18px; margin: 0 0 2px; }
+  .unidad-bloque .asist-grupo { border-top: 0; margin-top: 0; padding-top: 0; }
+  /* Calificación de la unidad: total sobre 10, estado (En curso / Aprobada / En remedial) y desglose. */
+  .cal-caja { background: #f1f5fb; border-radius: 10px; padding: 12px; margin: 10px 0; }
+  .cal-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .cal-num { font-size: 28px; font-weight: 700; line-height: 1.1; }
+  .cal-etq { font-size: 12px; color: #555; margin-top: 2px; }
+  .cal-fila { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-top: 1px solid #d3e2f4; font-size: 14px; }
+  .cal-fila b { white-space: nowrap; }
+  .b-g { background: #757575; }
   /* --- Resumen de asistencias ---
      Totales en una cuadrícula de 2 x 2 y un detalle por fecha que se abre y se
-     cierra con un botón. Se usa dentro de la pantalla de cada unidad. */
+     cierra con un botón. Se usa dentro de la pantalla de cada materia. */
   .asist-grupo { border-top: 1px solid #e0e0e0; padding-top: 14px; margin-top: 14px; }
   .asist-grupo:first-of-type { border-top: 0; margin-top: 6px; padding-top: 0; }
   .asist-grupo h2 { font-size: 18px; margin: 0 0 2px; }
@@ -146,10 +203,33 @@
 <script>
 // ---- Conexión con Supabase ----
 // La clave "anon"/"publishable" está pensada para ir en el cliente: por sí sola
-// no permite hacer nada que las políticas de RLS en la base de datos no permitan
-// (aquí: leer solo preguntas activas, e insertar resultados, nada más).
+// no permite hacer nada que las políticas de RLS y los permisos de las funciones en la
+// base de datos no permitan. Todo lo sensible (contraseñas, respuestas correctas,
+// asistencias de otros alumnos) solo se toca desde funciones RPC del servidor.
 var SUPABASE_URL = "https://juvqvshcfsrtscvzluaa.supabase.co";
 var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp1dnF2c2hjZnNydHNjdnpsdWFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzMDY4NjQsImV4cCI6MjEwNTg4Mjg2NH0.aL2bzJbTJ6DfzUlh8UaSBZ5Fah3Bae1tNBDi7R6BD68";
+
+// Llama a una función RPC de Supabase. Regresa una promesa con el JSON de la respuesta; si el
+// servidor rechaza la llamada, la promesa falla con un Error cuyo .message es el texto que
+// lanzó la función (p. ej. "Examen no disponible (no_asignado)").
+function rpc(nombre, cuerpo) {
+  return fetch(SUPABASE_URL + "/rest/v1/rpc/" + nombre, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(cuerpo)
+  }).then(function (resp) {
+    if (resp.ok) return resp.json();
+    return resp.text().then(function (t) {
+      var msg = t;
+      try { msg = JSON.parse(t).message || t; } catch (e) { /* texto plano */ }
+      throw new Error(msg || "Error del servidor");
+    });
+  });
+}
 
 // ---- Acceso con matrícula + contraseña (en el servidor) ----
 // La lista de alumnos y sus contraseñas viven en la tabla "alumnos" de Supabase y el
@@ -162,18 +242,7 @@ var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 // motivo: no_registrada | sin_contrasena | incorrecta | bloqueado | ya_tiene | invalida
 function llamarAcceso(funcion, matricula, contrasena) {
   var m = String(matricula || "").replace(/\s+/g, "");
-  return fetch(SUPABASE_URL + "/rest/v1/rpc/" + funcion, {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: "Bearer " + SUPABASE_ANON_KEY,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ p_matricula: m, p_contrasena: String(contrasena || "") })
-  }).then(function (resp) {
-    if (resp.ok) return resp.json();
-    return resp.text().then(function (t) { throw new Error(t || "No se pudo validar el acceso"); });
-  });
+  return rpc(funcion, { p_matricula: m, p_contrasena: String(contrasena || "") });
 }
 function iniciarSesion(matricula, contrasena) { return llamarAcceso("validar_acceso", matricula, contrasena); }
 function crearContrasena(matricula, contrasena) { return llamarAcceso("crear_contrasena", matricula, contrasena); }
@@ -189,94 +258,86 @@ function mensajeAcceso(r) {
   return "No se pudo continuar. Inténtalo de nuevo.";
 }
 
-// ---- Consulta de asistencias (en el servidor) ----
-// La tabla "asistencias" tiene RLS cerrada: el rol anon NO puede leerla directo.
-// Solo puede llamar a consultar_asistencias, que vuelve a validar la matrícula en el
-// servidor y devuelve únicamente las asistencias de ESA matrícula. Así la lista
-// completa de asistencias nunca viaja a la app (misma idea que validar_matricula).
-// Regresa una promesa con un arreglo, uno por materia/grupo:
-//   [{ grupo, materia, asistencias, justificadas, faltas, retardos,
-//      faltas_equivalentes, detalle: [{ fecha, estado, justificada, nota }] }]
-function consultarAsistencias(matricula) {
-  return fetch(SUPABASE_URL + "/rest/v1/rpc/consultar_asistencias", {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: "Bearer " + SUPABASE_ANON_KEY,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ p_matricula: String(matricula || "") })
-  }).then(function (resp) {
-    if (resp.ok) return resp.json();
-    return resp.text().then(function (t) { throw new Error(t || "No se pudieron cargar las asistencias"); });
-  });
+// ---- Datos del alumno (funciones RPC de solo lectura) ----
+// mis_materias(p_matricula)            -> [{ nombre }]  materias de ESTE alumno
+// consultar_asistencias(p_matricula)   -> [{ grupo, materia, asistencias, justificadas, faltas,
+//                                            retardos, faltas_equivalentes, detalle: [...] }]
+// mis_examenes(p_matricula, p_materia) -> [{ id, nombre, estado, correctas, total, reanudaciones,
+//                                            max_reanudaciones, abre_en, cierra_en }]
+//   estado: disponible | en_curso | presentado | no_asignado | aun_no_abre | cerrado
+function misMaterias(matricula) { return rpc("mis_materias", { p_matricula: String(matricula || "") }); }
+function consultarAsistencias(matricula) { return rpc("consultar_asistencias", { p_matricula: String(matricula || "") }); }
+// mis_calificaciones(p_matricula, p_materia) -> [{ unidad, orden, asistencias, actividades,
+//   participaciones, examen, calificacion, completa, en_remedial, minimo, n_actividades,
+//   total_actividades, n_participaciones }]
+// Los puntos de cada parte y su ponderación los controla el profesor en FullStatus; aquí solo se
+// muestran. calificacion = suma de las 4 partes (sobre 10). Si el examen ya tiene puntos y la suma
+// es menor al mínimo (7), en_remedial = true.
+function misCalificaciones(materia) { return rpc("mis_calificaciones", { p_matricula: alumno.matricula, p_materia: String(materia || "") }); }
+function misExamenes(matricula, materia) { return rpc("mis_examenes", { p_matricula: String(matricula || ""), p_materia: String(materia || "") }); }
+
+// ---- Examen: llamadas FIRMADAS al servidor ----
+// iniciar_intento, obtener_preguntas, guardar_progreso y calificar_examen exigen una firma
+// HMAC-SHA256 de "accion|matricula|materiaId|ts". La calcula la app Android (Puente.firmar en
+// MainActivity.java) con una clave que nunca llega a este JS. "ts" son segundos desde 1970 y el
+// servidor solo acepta firmas recientes (el reloj del celular debe estar bien). Fuera de la app
+// (en un navegador) no existe window.Android, la firma va vacía y el servidor la rechaza.
+function firmar(accion, matricula, materiaId) {
+  var ts = Math.floor(Date.now() / 1000);
+  var f = "";
+  try { if (window.Android && Android.firmar) f = Android.firmar(accion, matricula, String(materiaId), String(ts)) || ""; } catch (e) { f = ""; }
+  return { p_ts: ts, p_firma: f };
+}
+function conFirma(accion, matricula, materiaId, cuerpo) {
+  var s = firmar(accion, matricula, materiaId);
+  cuerpo.p_ts = s.p_ts;
+  cuerpo.p_firma = s.p_firma;
+  return cuerpo;
 }
 
-// ---- Fechas de cada unidad (tabla opcional "unidades") ----
-// Sirve para separar las asistencias por unidad: cada fila dice de qué fecha a qué
-// fecha va una unidad de un grupo y materia. La tabla es OPCIONAL: si no existe, si
-// el rol anon no puede leerla o si hay un fallo de red, se regresa [] y la pantalla
-// de la unidad muestra el resumen de toda la materia en lugar de romperse.
-// Regresa una promesa con [{ nombre, desde, hasta }] (fechas "AAAA-MM-DD").
-function cargarRangosUnidades(grupo, materia) {
-  var url = SUPABASE_URL + "/rest/v1/unidades?select=nombre,desde,hasta" +
-    "&grupo=eq." + encodeURIComponent(grupo) + "&materia=eq." + encodeURIComponent(materia);
-  return fetch(url, {
-    headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY }
-  }).then(function (resp) {
-    return resp.ok ? resp.json() : [];
-  }).catch(function () { return []; });
+// Abre (o reanuda) el intento del examen. Regresa { estado: ok|usado|agotado|anulado, ... }; con
+// "ok" trae restante_seg, reanudado, reanudaciones, max_reanudaciones y respuestas_parciales.
+function iniciarIntento(examenId) {
+  return rpc("iniciar_intento", conFirma("iniciar", alumno.matricula, examenId, { p_matricula: alumno.matricula, p_materia_id: examenId }));
 }
 
-// Duración total del examen, en minutos. Cámbiala aquí si hace falta.
-var DURACION_MIN = 60;
-
-function cargarMaterias() {
-  var url = SUPABASE_URL + "/rest/v1/materias?select=id,nombre&activa=eq.true&order=orden.asc";
-  return fetch(url, {
-    headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY }
-  }).then(function (resp) {
-    if (!resp.ok) throw new Error("No se pudieron cargar las materias");
-    return resp.json();
-  });
+// Pide las preguntas del examen (sin respuestas correctas: el servidor nunca las entrega).
+function obtenerPreguntas(examenId) {
+  return rpc("obtener_preguntas", conFirma("preguntas", alumno.matricula, examenId, { p_matricula: alumno.matricula, p_materia_id: examenId }))
+    .then(function (filas) {
+      return filas.map(function (f) { return { t: f.texto, o: f.opciones, x: f.contexto || null, s: f.seccion || null }; });
+    });
 }
 
-function cargarPreguntas(materiaId) {
-  // Ya NO se pide la respuesta correcta aquí — el servidor no la entrega a este
-  // rol (anon). La calificación se hace del lado seguro, ver calificarExamen().
-  // "seccion" es la etiqueta opcional de agrupación (ver comentario de
-  // .seccion-label arriba) y también de ella se sacan las unidades.
-  var url = SUPABASE_URL + "/rest/v1/preguntas?select=texto,opciones,contexto,seccion&activa=eq.true&materia_id=eq." + materiaId + "&order=orden.asc";
-  return fetch(url, {
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: "Bearer " + SUPABASE_ANON_KEY
-    }
-  }).then(function (resp) {
-    if (!resp.ok) throw new Error("No se pudieron cargar las preguntas");
-    return resp.json();
-  }).then(function (filas) {
-    return filas.map(function (f) { return { t: f.texto, o: f.opciones, x: f.contexto || null, s: f.seccion || null }; });
-  });
+// Guarda el avance (un número por pregunta, -1 = sin responder). Si el tiempo se acaba o la app
+// se cierra, el servidor califica ese avance.
+function guardarProgreso(examenId, respuestas) {
+  return rpc("guardar_progreso", conFirma("progreso", alumno.matricula, examenId, { p_matricula: alumno.matricula, p_materia_id: examenId, p_respuestas: respuestas }));
 }
 
-// La calificación se calcula en el servidor (función calificar_examen), que es
-// la única que puede leer cuál era la opción correcta. El cliente nunca la ve,
-// ni antes ni después: solo recibe el resultado ya calculado.
-function calificarExamen(materiaId, matricula, respuestas) {
-  var url = SUPABASE_URL + "/rest/v1/rpc/calificar_examen";
-  return fetch(url, {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: "Bearer " + SUPABASE_ANON_KEY,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ p_materia_id: materiaId, p_matricula: matricula, p_respuestas: respuestas })
-  }).then(function (resp) {
-    if (!resp.ok) return resp.text().then(function (t) { throw new Error(t || "No se pudo calificar el examen"); });
-    return resp.json();
-  });
+// La calificación se calcula en el servidor, que es el único que puede leer cuál era la opción
+// correcta. Regresa { id, correctas, total }.
+function calificarExamen(examenId, respuestas) {
+  return rpc("calificar_examen", conFirma("calificar", alumno.matricula, examenId, { p_materia_id: examenId, p_matricula: alumno.matricula, p_respuestas: respuestas }));
+}
+
+// Convierte el texto de un error del servidor en un mensaje para el alumno.
+function mensajeErrorServidor(e) {
+  var t = String((e && e.message) || "");
+  if (/firma/i.test(t)) return "La app no pudo validar tu examen. Actualiza la app o avisa a tu profesor.";
+  if (/reloj|desajust/i.test(t)) return "La hora de tu celular está desajustada. Corrígela e inténtalo de nuevo.";
+  var m = /Examen no disponible \((\w+)\)/.exec(t);
+  if (m) return textoMotivo(m[1]);
+  if (/no tiene preguntas activas/i.test(t)) return "Este examen todavía no tiene preguntas disponibles.";
+  if (/Intento ya utilizado/i.test(t)) return "Este examen ya fue enviado.";
+  if (/Tiempo agotado/i.test(t)) return "Se acabó el tiempo de este examen.";
+  return "No se pudo continuar. Revisa tu conexión e inténtalo de nuevo.";
+}
+function textoMotivo(motivo) {
+  if (motivo === "no_asignado") return "Este examen no está asignado para ti.";
+  if (motivo === "aun_no_abre") return "Este examen aún no abre.";
+  if (motivo === "cerrado") return "Este examen ya cerró.";
+  return "Este examen no está disponible por ahora.";
 }
 
 // Busca un link de YouTube (youtube.com/watch?v=, youtu.be/, o ya en formato
@@ -347,23 +408,21 @@ function crearReproductor(destino, idVideo, aviso) {
 }
 
 // ---- Estado y pantallas ----
-var MATERIAS = [];
-var materiaId = null;
-var PREGUNTAS = [];      // TODAS las preguntas de la materia (el servidor califica por posición en esta lista)
-var UNIDAD_IDX = [];     // índices (en PREGUNTAS) de las preguntas de la unidad que se está presentando
-var NUMERO = {};         // índice en PREGUNTAS -> número que ve el alumno (1, 2, 3... dentro de la unidad)
+var examenId = null;     // id (tabla materias) del examen que se está presentando
+var PREGUNTAS = [];      // preguntas del examen, en el orden que las califica el servidor
 var SECCIONES = [];      // grupos de preguntas consecutivas con la misma sección (ver agruparSecciones)
 var secIdx = 0;          // sección que se está mostrando
 var app = document.getElementById("app");
 var alumno = null;       // { matricula, nombre, grupo } del alumno que accedió
 var matriculaEscrita = ""; // lo último que escribió en el campo (por si vuelve atrás). La contraseña NO se guarda aquí.
-var resp = [];
+var resp = [];           // una respuesta por pregunta (-1 = sin responder)
 var avisoFaltantes = false; // true tras avisar de preguntas sin responder (el 2.º toque ya termina)
 
 // ---- Reloj ----
 var relojTimer = null;   // id del setInterval, o null si no corre
 var relojFin = 0;        // momento (ms desde 1970) en que se acaba el tiempo
 var examenTerminado = false; // evita calificar dos veces (p. ej. botón + fin del tiempo a la vez)
+var guardarTimer = null; // temporizador que agrupa los guardados de avance
 
 document.addEventListener("contextmenu", function (e) { e.preventDefault(); });
 
@@ -383,10 +442,10 @@ function formatoTiempo(ms) {
   return (h > 0 ? h + ":" : "") + dos(m) + ":" + dos(seg);
 }
 
-// Arranca el reloj. Se usa una HORA DE FIN (Date.now() + duración) y no un
-// contador que resta 1 cada segundo: así, si el WebView atrasa algún tick, el
-// tiempo restante sigue siendo correcto.
-function iniciarReloj() {
+// Arranca el reloj con los segundos que el SERVIDOR dice que quedan (restanteSeg). Se usa una
+// HORA DE FIN (Date.now() + restante) y no un contador que resta 1 cada segundo: así, si el
+// WebView atrasa algún tick, el tiempo restante sigue siendo correcto.
+function iniciarReloj(restanteSeg) {
   var barra = document.getElementById("reloj");
   if (!barra) {
     barra = el("div");
@@ -398,7 +457,7 @@ function iniciarReloj() {
   barra.appendChild(lineaTiempo);
   barra.appendChild(el("div", alumno.nombre + " · " + alumno.matricula + " · Grupo " + alumno.grupo, "reloj-alumno"));
   document.body.classList.add("con-reloj");
-  relojFin = Date.now() + DURACION_MIN * 60 * 1000;
+  relojFin = Date.now() + Math.max(0, restanteSeg) * 1000;
   function tick() {
     var restante = relojFin - Date.now();
     lineaTiempo.textContent = "⏱ " + formatoTiempo(restante);
@@ -417,47 +476,23 @@ function detenerReloj() {
   document.body.classList.remove("con-reloj");
 }
 
-// ---- Flujo de pantallas (reorganizado el 10/oct/2026, 3; contraseña 12/oct/2026) ----
+// ---- Flujo de pantallas (23/oct/2026) ----
 // 1) pantallaLogin: matrícula + contraseña (se validan en el servidor).
 //    1b) pantallaCrearContrasena: el alumno que aún no tiene contraseña la crea (una sola vez).
-// 2) pantallaInicio: datos del alumno + un botón por MATERIA.
-// 3) pantallaUnidades: las unidades (UNIDAD 1, UNIDAD 2...) de la materia elegida.
-// 4) pantallaUnidad: resumen de asistencias de esa unidad + botón del examen.
+// 2) pantallaInicio: datos del alumno (nombre, matrícula, grado, grupo, fecha) + "Materias".
+// 3) pantallaMateria: asistencias, faltas y retardos de la materia + botón "Exámenes".
+// 4) pantallaExamenes: exámenes de la materia; se activan los que el profesor asignó.
 // 5) confirmarExamen -> examen (pantallaSeccion) -> resultado.
 // La vigilancia anti-trampa (Android.iniciarExamen) empieza SOLO en el paso 5, al
 // pulsar "Comenzar examen", así que moverse por las pantallas 1 a 4 no anula nada.
 
-// ---- Utilidades de materias y unidades ----
+// ---- Utilidades ----
 
 // Normaliza un nombre para compararlo: sin acentos, sin espacios ni signos y en
-// minúsculas. Sirve para unir la materia del examen (tabla materias) con la materia
-// de las asistencias aunque se hayan escrito un poco distinto ("Inglés I" / "INGLES I").
+// minúsculas. Sirve para unir la materia de las asistencias con la del botón aunque se hayan
+// escrito un poco distinto ("Inglés I" / "INGLES I").
 function clave(texto) {
   return String(texto || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-// Saca el número de unidad de un texto ("Unidad 1 - Present Simple" -> 1).
-// Regresa null si el texto no menciona una unidad. Así se decide a qué unidad
-// pertenece cada pregunta (por su sección) y también se unen las fechas de la
-// tabla "unidades" con la unidad que se está viendo.
-function numeroUnidad(texto) {
-  var m = /unidad\s*(\d+)/i.exec(String(texto || ""));
-  return m ? parseInt(m[1], 10) : null;
-}
-
-// Agrupa las preguntas (ya ordenadas) por unidad. Cada unidad guarda los ÍNDICES en
-// PREGUNTAS (no copias), porque el servidor califica por posición en la lista completa.
-// Las preguntas cuya sección no menciona una unidad no pertenecen a ninguna y no salen.
-// Regresa [{ num, nombre: "Unidad N", indices: [...] }] ordenado por número.
-function calcularUnidades(preguntas) {
-  var mapa = {};
-  preguntas.forEach(function (p, i) {
-    var n = numeroUnidad(p.s);
-    if (n === null) return;
-    if (!mapa[n]) mapa[n] = { num: n, nombre: "Unidad " + n, indices: [] };
-    mapa[n].indices.push(i);
-  });
-  return Object.keys(mapa).map(function (k) { return mapa[k]; }).sort(function (a, b) { return a.num - b.num; });
 }
 
 // Busca, en la lista de asistencias del alumno, el registro de una materia por nombre.
@@ -469,9 +504,9 @@ function asistenciaDeMateria(lista, nombreMateria) {
   return null;
 }
 
-// Recalcula los totales a partir del detalle por fecha (se usa cuando se filtra por
-// las fechas de una unidad). Misma regla de siempre: una falta justificada se cuenta
-// aparte y 3 retardos = 1 falta equivalente.
+// Recalcula los totales de asistencia a partir de una lista de fechas (el detalle ya recortado al
+// periodo de una unidad). Misma regla de siempre: una falta justificada se cuenta aparte y
+// 3 retardos = 1 falta equivalente.
 function resumenDeDetalle(detalle) {
   var r = { asistencias: 0, justificadas: 0, faltas: 0, retardos: 0, detalle: detalle };
   detalle.forEach(function (d) {
@@ -481,6 +516,50 @@ function resumenDeDetalle(detalle) {
   });
   r.faltas_equivalentes = r.faltas + Math.floor(r.retardos / 3);
   return r;
+}
+
+// "10B" -> { grado: "10", grupo: "B" }. El servidor guarda grado y grupo juntos en alumnos.grupo.
+function separarGrupo(g) {
+  var m = /^\s*(\d+)\s*(.*)$/.exec(String(g || ""));
+  if (!m) return { grado: "—", grupo: String(g || "—") };
+  return { grado: m[1], grupo: (m[2] || "—").toUpperCase() };
+}
+
+// Fecha de hoy en español, p. ej. "Viernes 23 de octubre de 2026" (sin depender del idioma del celular).
+var DIAS_ES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+var MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+function fechaHoy() {
+  var d = new Date();
+  return DIAS_ES[d.getDay()] + " " + d.getDate() + " de " + MESES_ES[d.getMonth()] + " de " + d.getFullYear();
+}
+
+// Fecha y hora local de un instante ISO, p. ej. "09/10/2026 14:00" ("" si no se puede leer).
+function fechaHora(iso) {
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  function dos(n) { return (n < 10 ? "0" : "") + n; }
+  return dos(d.getDate()) + "/" + dos(d.getMonth() + 1) + "/" + d.getFullYear() + " " + dos(d.getHours()) + ":" + dos(d.getMinutes());
+}
+
+// Valor del número romano con el que termina un nombre ("INGLÉS IX" -> 9; sin romano -> 0).
+function valorRomano(nombre) {
+  var m = /\b([IVXLCM]+)\s*$/i.exec(String(nombre || ""));
+  if (!m) return 0;
+  var mapa = { I: 1, V: 5, X: 10, L: 50, C: 100, M: 1000 }, t = m[1].toUpperCase(), v = 0;
+  for (var i = 0; i < t.length; i++) {
+    var a = mapa[t.charAt(i)], b = mapa[t.charAt(i + 1)] || 0;
+    v += a < b ? -a : a;
+  }
+  return v;
+}
+// Ordena las materias por nombre y, dentro del mismo nombre, por número romano (I, VI, IX...).
+function ordenarMaterias(lista) {
+  function base(n) { return String(n || "").replace(/\s*[IVXLCM]+\s*$/i, "").toLowerCase(); }
+  return (lista || []).slice().sort(function (a, b) {
+    var pa = base(a.nombre), pb = base(b.nombre);
+    if (pa !== pb) return pa < pb ? -1 : 1;
+    return valorRomano(a.nombre) - valorRomano(b.nombre);
+  });
 }
 
 // Fila "etiqueta ... valor" de la tarjeta de datos del alumno.
@@ -535,8 +614,7 @@ function pantallaLogin(mensajeOk) {
     bCrear.disabled = true;
     b.textContent = "Verificando...";
     msg.textContent = "";
-    // La matrícula y la contraseña se validan en el servidor (validar_acceso). El mensaje de
-    // rechazo no da pistas de matrículas parecidas.
+    // La matrícula y la contraseña se validan en el servidor (validar_acceso).
     iniciarSesion(matriculaEscrita, contrasena).then(function (r) {
       pass.value = ""; // la contraseña no se queda en pantalla ni en memoria
       if (!r || !r.ok) {
@@ -633,39 +711,63 @@ function pantallaCrearContrasena() {
   pantalla(c);
 }
 
-// Pantalla 2: inicio del alumno (datos + un botón por materia).
+// Pantalla 2: inicio del alumno. Muestra sus datos (nombre, matrícula, grado, grupo, fecha de hoy).
+// En la esquina izquierda hay un botón de menú que abre un panel lateral (hasta la mitad de la
+// pantalla) con "Materias" —un botón por cada materia de ESTE alumno— y, hasta abajo, "Cerrar sesión".
 function pantallaInicio() {
   var c = el("div", "", "card");
-  c.appendChild(el("h1", "FullStatus Student"));
 
+  var barra = el("div", "", "barra");
+  var hamb = el("button", "", "hamb");
+  hamb.setAttribute("aria-label", "Abrir menú");
+  hamb.appendChild(el("span"));
+  hamb.appendChild(el("span"));
+  hamb.appendChild(el("span"));
+  barra.appendChild(hamb);
+  barra.appendChild(el("h1", "FullStatus Student"));
+  c.appendChild(barra);
+
+  var gg = separarGrupo(alumno.grupo);
   var perfil = el("div", "", "perfil");
   perfil.appendChild(el("p", alumno.nombre, "perfil-nombre"));
   perfil.appendChild(fila("Matrícula", alumno.matricula));
-  perfil.appendChild(fila("Grupo", alumno.grupo));
+  perfil.appendChild(fila("Grado", gg.grado));
+  perfil.appendChild(fila("Grupo", gg.grupo));
+  perfil.appendChild(fila("Fecha", fechaHoy()));
   c.appendChild(perfil);
+  c.appendChild(el("p", "Toca el botón de arriba a la izquierda para ver tus materias.", "info"));
 
-  c.appendChild(el("p", "¿Qué quieres hacer?", "seccion-label"));
-
+  // Panel lateral y fondo oscuro (van dentro de la tarjeta pero con posición fija).
+  var fondo = el("div");
+  fondo.id = "menu-fondo";
+  var panel = el("div");
+  panel.id = "menu-panel";
+  panel.appendChild(el("p", "Materias", "seccion-label"));
   // Zona de materias: primero dice "Cargando" y se llena cuando llega la lista.
-  var zona = el("div");
+  var zona = el("div", "", "menu-zona");
   zona.appendChild(el("p", "Cargando materias...", "info"));
-  c.appendChild(zona);
-
+  panel.appendChild(zona);
   var bSalir = el("button", "Cerrar sesión", "sec");
-  bSalir.onclick = pantallaLogin;
-  c.appendChild(bSalir);
+  bSalir.onclick = function () { pantallaLogin(); };
+  panel.appendChild(bSalir);
+  c.appendChild(fondo);
+  c.appendChild(panel);
+
+  function abrirMenu() { fondo.className = "abierto"; panel.className = "abierto"; }
+  function cerrarMenu() { fondo.className = ""; panel.className = ""; }
+  hamb.onclick = abrirMenu;
+  fondo.onclick = cerrarMenu;
   pantalla(c);
 
-  cargarMaterias().then(function (filas) {
-    MATERIAS = filas;
+  misMaterias(alumno.matricula).then(function (filas) {
     zona.innerHTML = "";
-    if (!filas.length) {
-      zona.appendChild(el("p", "No hay materias disponibles en este momento. Pregúntale a tu profesor.", "aviso"));
+    if (!filas || !filas.length) {
+      zona.appendChild(el("p", "Todavía no tienes materias registradas. Pregúntale a tu profesor.", "aviso"));
       return;
     }
-    filas.forEach(function (m) {
+    ordenarMaterias(filas).forEach(function (m) {
       var b = el("button", m.nombre, "menu-boton");
-      b.onclick = function () { pantallaUnidades(m); };
+      b.onclick = function () { pantallaMateria(m); };
       zona.appendChild(b);
     });
   }).catch(function () {
@@ -677,91 +779,74 @@ function pantallaInicio() {
   });
 }
 
-// Pantalla 3: unidades de la materia elegida. Se sacan de las secciones de sus
-// preguntas (ver calcularUnidades), así que no hace falta capturarlas aparte.
-function pantallaUnidades(m) {
+// Pantalla 3: una materia. Arriba los totales de asistencias, faltas y retardos (se piden cada
+// vez que se abre, así siempre reflejan lo último que subió el profesor desde FullStatus) y
+// abajo el botón "Exámenes", disponible desde el principio.
+function pantallaMateria(m) {
   var c = el("div", "", "card");
+  c.appendChild(el("p", "Materia", "seccion-label"));
   c.appendChild(el("h1", m.nombre, "mayus"));
-  var zona = el("div");
-  zona.appendChild(el("p", "Cargando unidades...", "info"));
-  c.appendChild(zona);
-  var volver = el("button", "← Volver al inicio", "sec");
-  volver.onclick = pantallaInicio;
-  c.appendChild(volver);
-  pantalla(c);
-
-  cargarPreguntas(m.id).then(function (preguntas) {
-    var unidades = calcularUnidades(preguntas);
-    zona.innerHTML = "";
-    if (!unidades.length) {
-      // Caso normal mientras el profesor no etiquete las secciones como "Unidad N ...".
-      zona.appendChild(el("p", "Esta materia todavía no tiene unidades disponibles. Pregúntale a tu profesor.", "aviso"));
-      return;
-    }
-    unidades.forEach(function (u) {
-      var b = el("button", u.nombre, "menu-boton");
-      b.onclick = function () { pantallaUnidad(m, u); };
-      zona.appendChild(b);
-    });
-  }).catch(function () {
-    zona.innerHTML = "";
-    zona.appendChild(el("p", "No se pudieron cargar las unidades. Revisa tu conexión e inténtalo de nuevo.", "aviso"));
-    var r = el("button", "Reintentar");
-    r.onclick = function () { pantallaUnidades(m); };
-    zona.appendChild(r);
-  });
-}
-
-// Pantalla 4: una unidad. Arriba el resumen de asistencias/faltas y abajo el botón
-// del examen. Los datos de asistencia se piden cada vez que se abre, así siempre
-// reflejan lo último que subió el profesor desde FullStatus. El botón del examen
-// está disponible desde el principio (no espera a que lleguen las asistencias).
-function pantallaUnidad(m, u) {
-  var c = el("div", "", "card");
-  c.appendChild(el("p", m.nombre, "seccion-label mayus"));
-  c.appendChild(el("h1", u.nombre, "mayus"));
 
   var zona = el("div");
   zona.appendChild(el("p", "Cargando tus asistencias...", "info"));
   c.appendChild(zona);
 
-  var bEx = el("button", "Hacer examen de la unidad");
-  bEx.onclick = function () { confirmarExamen(m, u); };
+  var bEx = el("button", "Exámenes");
+  bEx.onclick = function () { pantallaExamenes(m); };
   c.appendChild(bEx);
-  var volver = el("button", "← Volver a las unidades", "sec");
-  volver.onclick = function () { pantallaUnidades(m); };
+  var volver = el("button", "← Volver a materias", "sec");
+  volver.onclick = pantallaInicio;
   c.appendChild(volver);
   pantalla(c);
 
-  consultarAsistencias(alumno.matricula).then(function (lista) {
-    var a = asistenciaDeMateria(lista, m.nombre);
+  // Se piden a la vez las asistencias y las calificaciones por unidad. Si las calificaciones fallan
+  // (o aún no hay), la pantalla sigue funcionando solo con las asistencias.
+  Promise.all([
+    consultarAsistencias(alumno.matricula),
+    misCalificaciones(m.nombre).catch(function () { return []; })
+  ]).then(function (res) {
+    var a = asistenciaDeMateria(res[0], m.nombre);
+    var cals = res[1] || [];
     zona.innerHTML = "";
-    if (!a) {
-      // Caso normal: el profesor todavía no ha subido asistencias de este alumno en esta materia.
+    if (!a && !cals.length) {
+      // Caso normal: el profesor todavía no ha subido asistencias ni calificaciones de este alumno en esta materia.
       zona.appendChild(el("p", "Todavía no hay asistencias registradas para ti en esta materia."));
-      return null;
+      return;
     }
-    // Se buscan las fechas de ESTA unidad para recortar el detalle a ese periodo.
-    return cargarRangosUnidades(a.grupo, a.materia).then(function (rangos) {
-      var rango = null;
-      rangos.forEach(function (r) { if (numeroUnidad(r.nombre) === u.num) rango = r; });
-      var datos, nota;
-      if (rango) {
-        // Las fechas llegan como "AAAA-MM-DD": se comparan como texto (sin Date) para que
-        // la zona horaria del celular no mueva un día.
-        var detalle = (a.detalle || []).filter(function (d) {
-          var f = String(d.fecha || "").slice(0, 10);
-          return f >= rango.desde && f <= rango.hasta;
-        });
-        datos = resumenDeDetalle(detalle);
-        nota = "Periodo de la unidad: del " + fechaCorta(rango.desde) + " al " + fechaCorta(rango.hasta) + ".";
-      } else {
-        datos = a;
-        nota = "Aún no hay fechas registradas para esta unidad: se muestra el resumen de toda la materia.";
-      }
-      zona.appendChild(tarjetaAsistencia(datos, true));
-      zona.appendChild(el("p", nota, "info"));
+    // Se muestra un bloque por UNIDAD, no todas las fechas de la materia. Las unidades y sus fechas
+    // las registra el profesor en FullStatus y llegan en a.unidades [{ nombre, desde, hasta }]
+    // (fechas "AAAA-MM-DD", que se comparan como texto para que la zona horaria del celular no
+    // mueva un día). Una unidad que solo trae calificación (sin fechas) también se muestra.
+    var unidades = ((a && a.unidades) || []).map(function (u) {
+      return { nombre: u.nombre, desde: String(u.desde || "").slice(0, 10), hasta: String(u.hasta || "").slice(0, 10), conFechas: true };
     });
+    cals.forEach(function (c) {
+      var ya = unidades.some(function (u) { return clave(u.nombre) === clave(c.unidad); });
+      if (!ya) unidades.push({ nombre: c.unidad, conFechas: false });
+    });
+    if (!unidades.length) {
+      zona.appendChild(el("p", "Tu profesor aún no registra las fechas de las unidades de esta materia, por eso todavía no se muestran tus asistencias.", "aviso"));
+      return;
+    }
+    var hayFechas = false;
+    unidades.forEach(function (u) {
+      var cal = null;
+      cals.forEach(function (c) { if (clave(c.unidad) === clave(u.nombre)) cal = c; });
+      var bloque = el("div", "", "unidad-bloque");
+      bloque.appendChild(el("h2", u.nombre, "mayus"));
+      if (cal) bloque.appendChild(tarjetaCalificacion(cal));
+      if (u.conFechas) {
+        hayFechas = true;
+        var detalle = ((a && a.detalle) || []).filter(function (d) {
+          var f = String(d.fecha || "").slice(0, 10);
+          return f >= u.desde && f <= u.hasta;
+        });
+        bloque.appendChild(el("p", "Del " + fechaCorta(u.desde) + " al " + fechaCorta(u.hasta) + ".", "info"));
+        bloque.appendChild(tarjetaAsistencia(resumenDeDetalle(detalle), true, true));
+      }
+      zona.appendChild(bloque);
+    });
+    if (hayFechas) zona.appendChild(el("p", "Cada 3 retardos cuentan como 1 falta. Las faltas justificadas cuentan como asistencia.", "info"));
   }).catch(function () {
     zona.innerHTML = "";
     zona.appendChild(el("p", "No se pudieron cargar tus asistencias. Revisa tu conexión e inténtalo de nuevo.", "aviso"));
@@ -795,10 +880,44 @@ function recuadroTotal(numero, etiqueta, clase) {
   return r;
 }
 
+// Número de puntos sin ceros de más ("2.5", "7"); "—" si no hay dato.
+function pts(n) {
+  if (n === null || n === undefined) return "—";
+  return String(Math.round(Number(n) * 100) / 100);
+}
+
+// Calificación de una unidad: total sobre 10, estado y desglose (asistencias, actividades,
+// participaciones y examen). Solo lectura: los puntos los calcula FullStatus.
+function tarjetaCalificacion(c) {
+  var caja = el("div", "", "cal-caja");
+  var cab = el("div", "", "cal-cab");
+  var izq = el("div");
+  izq.appendChild(el("div", pts(c.calificacion) + " / 10", "cal-num"));
+  izq.appendChild(el("div", c.completa ? "Calificación de la unidad" : "Lleva " + pts(c.calificacion) + " de 10 (falta el examen)", "cal-etq"));
+  cab.appendChild(izq);
+  var et = !c.completa ? { t: "En curso", c: "b-g" } : (c.en_remedial ? { t: "En remedial", c: "b-a" } : { t: "Aprobada", c: "b-p" });
+  cab.appendChild(el("span", et.t, "badge " + et.c));
+  caja.appendChild(cab);
+  function fila2(etiqueta, valor) {
+    var f = el("div", "", "cal-fila");
+    f.appendChild(el("span", etiqueta));
+    f.appendChild(el("b", valor));
+    return f;
+  }
+  var hayAct = c.n_actividades !== null && c.n_actividades !== undefined;
+  var hayTot = c.total_actividades !== null && c.total_actividades !== undefined;
+  caja.appendChild(fila2("Asistencias", pts(c.asistencias)));
+  caja.appendChild(fila2("Actividades" + (hayAct ? " (" + c.n_actividades + (hayTot ? " de " + c.total_actividades : "") + ")" : ""), pts(c.actividades)));
+  caja.appendChild(fila2("Participaciones" + (c.n_participaciones !== null && c.n_participaciones !== undefined ? " (" + c.n_participaciones + ")" : ""), pts(c.participaciones)));
+  caja.appendChild(fila2("Examen", c.examen === null || c.examen === undefined ? "Pendiente" : pts(c.examen)));
+  if (c.en_remedial) caja.appendChild(el("p", "Tu calificación quedó por debajo de " + pts(c.minimo) + ": te toca el examen remedial.", "aviso"));
+  return caja;
+}
+
 // Resumen de asistencias: totales + detalle por fecha (se abre con un botón).
-// Los números ya vienen calculados (del servidor o de resumenDeDetalle); aquí solo se muestran.
-// "sinTitulo" = true cuando la pantalla que lo contiene ya dice la materia y la unidad.
-function tarjetaAsistencia(m, sinTitulo) {
+// Los números ya vienen calculados en el servidor; aquí solo se muestran.
+// "sinTitulo" = true cuando la pantalla que lo contiene ya dice la materia.
+function tarjetaAsistencia(m, sinTitulo, sinNota) {
   var caja = el("div", "", "asist-grupo");
   if (!sinTitulo) {
     caja.appendChild(el("h2", m.materia ? m.materia : "Grupo " + m.grupo));
@@ -813,7 +932,7 @@ function tarjetaAsistencia(m, sinTitulo) {
   caja.appendChild(totales);
 
   caja.appendChild(el("p", "Faltas equivalentes: " + (m.faltas_equivalentes || 0), "eq"));
-  caja.appendChild(el("p", "Cada 3 retardos cuentan como 1 falta. Las faltas justificadas cuentan como asistencia.", "info"));
+  if (!sinNota) caja.appendChild(el("p", "Cada 3 retardos cuentan como 1 falta. Las faltas justificadas cuentan como asistencia.", "info"));
 
   var detalle = m.detalle || [];
   var lista = el("div", "", "detalle-lista");
@@ -841,59 +960,136 @@ function tarjetaAsistencia(m, sinTitulo) {
   return caja;
 }
 
+// Pantalla 4: exámenes de la materia. Cada uno sale con su estado y solo se puede abrir si el
+// profesor se lo asignó al alumno y está dentro de su ventana de fechas (el servidor decide).
+function pantallaExamenes(m) {
+  var c = el("div", "", "card");
+  c.appendChild(el("p", m.nombre, "seccion-label mayus"));
+  c.appendChild(el("h1", "Exámenes"));
+  var zona = el("div");
+  zona.appendChild(el("p", "Cargando exámenes...", "info"));
+  c.appendChild(zona);
+  var volver = el("button", "← Volver a la materia", "sec");
+  volver.onclick = function () { pantallaMateria(m); };
+  c.appendChild(volver);
+  pantalla(c);
+
+  misExamenes(alumno.matricula, m.nombre).then(function (lista) {
+    zona.innerHTML = "";
+    if (!lista || !lista.length) {
+      zona.appendChild(el("p", "Todavía no hay exámenes para esta materia. Pregúntale a tu profesor.", "aviso"));
+      return;
+    }
+    var unidadPrevia = null;
+    lista.forEach(function (ex) {
+      // Encabezado "Unidad N" cada vez que cambia la unidad (la lista ya llega ordenada por unidad).
+      if (ex.unidad_texto && ex.unidad_texto !== unidadPrevia) {
+        var h = el("h2", ex.unidad_texto, "mayus");
+        h.style.margin = "18px 0 0";
+        zona.appendChild(h);
+      }
+      unidadPrevia = ex.unidad_texto || null;
+      var activo = ex.estado === "disponible" || ex.estado === "en_curso";
+      var item = el("div", "", "ex-item" + (activo ? " activo" : ""));
+      // Tipo de examen (Ordinario, Remedial, Extraordinario, Extraordinario 2). La lista ya llega
+      // en ese orden desde el servidor (mis_examenes).
+      if (ex.tipo_texto) item.appendChild(el("div", ex.tipo_texto, "seccion-label"));
+      item.appendChild(el("div", ex.nombre, "ex-nombre"));
+      item.appendChild(el("p", textoEstadoExamen(ex), "ex-estado"));
+      var b = el("button", etiquetaBotonExamen(ex));
+      b.disabled = !activo;
+      if (activo) b.onclick = function () { confirmarExamen(m, ex); };
+      item.appendChild(b);
+      zona.appendChild(item);
+    });
+  }).catch(function () {
+    zona.innerHTML = "";
+    zona.appendChild(el("p", "No se pudieron cargar los exámenes. Revisa tu conexión e inténtalo de nuevo.", "aviso"));
+    var r = el("button", "Reintentar");
+    r.onclick = function () { pantallaExamenes(m); };
+    zona.appendChild(r);
+  });
+}
+
+// Texto bajo el nombre del examen según su estado.
+function textoEstadoExamen(ex) {
+  if (ex.estado === "presentado") return "Presentado: " + ex.correctas + " de " + ex.total + " correctas.";
+  if (ex.estado === "en_curso") return "Tienes un intento en curso. Puedes continuarlo.";
+  if (ex.estado === "disponible") {
+    var cierra = ex.cierra_en ? fechaHora(ex.cierra_en) : "";
+    return cierra ? "Disponible hasta el " + cierra + "." : "Disponible.";
+  }
+  if (ex.estado === "aun_no_abre") {
+    var abre = ex.abre_en ? fechaHora(ex.abre_en) : "";
+    return abre ? "Abre el " + abre + "." : "Aún no abre.";
+  }
+  if (ex.estado === "cerrado") return "Este examen ya cerró.";
+  if (ex.estado === "sin_examen") return "Aún no hay examen para esta unidad.";
+  if (ex.estado === "no_asignado") return "Tu profesor aún no te lo ha asignado.";
+  return "No disponible por ahora.";
+}
+function etiquetaBotonExamen(ex) {
+  if (ex.estado === "disponible") return "Comenzar";
+  if (ex.estado === "en_curso") return "Continuar examen";
+  if (ex.estado === "presentado") return "Presentado";
+  return "No disponible";
+}
+
 // Examen, paso 1: avisos y botón "Comenzar examen". Es el punto donde empieza
 // la vigilancia anti-trampa (Android.iniciarExamen), igual que antes.
-// "m" = materia { id, nombre }, "u" = unidad { num, nombre }.
-function confirmarExamen(m, u) {
+// "m" = materia { nombre }, "ex" = examen { id, nombre, estado, ... }.
+function confirmarExamen(m, ex) {
   var c = el("div", "", "card");
   c.appendChild(el("h1", "Examen"));
-  c.appendChild(el("p", m.nombre + " · " + u.nombre, "seccion-label mayus"));
-  c.appendChild(el("p", "Tendrás " + DURACION_MIN + " minutos para contestar. Al terminar el tiempo, el examen se entrega solo con lo que lleves.", "aviso"));
-  c.appendChild(el("p", "Al comenzar no podrás salir, minimizar, cambiar de pantalla ni tomar capturas. Si lo haces, el examen se cierra y deberás empezar de nuevo.", "aviso"));
+  c.appendChild(el("p", ex.nombre, "seccion-label mayus"));
+  c.appendChild(el("p", "Tendrás un tiempo límite para contestar; verás el reloj arriba. Al terminar el tiempo, el examen se entrega solo con lo que lleves.", "aviso"));
+  c.appendChild(el("p", "Al comenzar no podrás salir, minimizar, cambiar de pantalla ni tomar capturas. Si lo haces, el examen se cierra. Podrás reanudarlo hasta " + (ex.max_reanudaciones || 2) + " veces, sin perder el tiempo que ya corrió; después se anula.", "aviso"));
+  if (ex.estado === "en_curso") {
+    c.appendChild(el("p", "Ya tienes un intento en curso. Al continuar recuperarás las respuestas que habías guardado.", "info"));
+  }
   var msg = el("p", "", "aviso");
   c.appendChild(msg);
-  var b = el("button", "Comenzar examen");
+  var b = el("button", ex.estado === "en_curso" ? "Continuar examen" : "Comenzar examen");
   var volver = el("button", "← Volver", "sec");
-  volver.onclick = function () { pantallaUnidad(m, u); };
+  volver.onclick = function () { pantallaExamenes(m); };
   b.onclick = function () {
     b.disabled = true;
     volver.disabled = true;
     b.textContent = "Cargando preguntas...";
     msg.textContent = "";
-    // Se vuelven a pedir las preguntas de TODA la materia: el servidor califica por
-    // posición en esa lista, así que los índices de la unidad deben salir de la lista
-    // más reciente (por si el profesor cambió algo desde que se abrió la pantalla).
-    cargarPreguntas(m.id).then(function (preguntas) {
-      var unidad = null;
-      calcularUnidades(preguntas).forEach(function (x) { if (x.num === u.num) unidad = x; });
-      if (!unidad) { var e = new Error("sin-preguntas"); e.sinPreguntas = true; throw e; }
-      materiaId = m.id;
+    var info = null;
+    // 1) El servidor abre (o reanuda) el intento y dice cuánto tiempo queda.
+    iniciarIntento(ex.id).then(function (r) {
+      if (r.estado === "usado") throw errorMostrable("Ya presentaste este examen.");
+      if (r.estado === "agotado") throw errorMostrable("Se acabó el tiempo de tu intento. Se calificó el avance que habías guardado.");
+      if (r.estado === "anulado") throw errorMostrable("Tu examen se anuló por salir de la app demasiadas veces.");
+      info = r;
+      // 2) Se piden las preguntas (sin respuestas correctas).
+      return obtenerPreguntas(ex.id);
+    }).then(function (preguntas) {
+      if (!preguntas.length) throw errorMostrable("Este examen todavía no tiene preguntas disponibles.");
+      examenId = ex.id;
       PREGUNTAS = preguntas;
-      UNIDAD_IDX = unidad.indices;
-      // Numeración que ve el alumno: 1, 2, 3... dentro de la unidad (no la posición global).
-      NUMERO = {};
-      unidad.indices.forEach(function (qi, pos) { NUMERO[qi] = pos + 1; });
-      SECCIONES = agruparSecciones(preguntas, unidad.indices);
+      SECCIONES = agruparSecciones(preguntas);
+      // -1 = sin responder. Se recuperan las respuestas guardadas si el alumno está reanudando.
+      resp = PREGUNTAS.map(function () { return -1; });
+      var parciales = info.respuestas_parciales || [];
+      for (var i = 0; i < parciales.length && i < resp.length; i++) {
+        if (typeof parciales[i] === "number") resp[i] = parciales[i];
+      }
       setTimeout(function () {
         if (window.Android) Android.iniciarExamen();
         secIdx = 0;
-        // -1 = sin responder. Se usa -1 (y no un hueco/null) para que el arreglo
-        // enviado al servidor siempre lleve un número por pregunta de la materia; -1
-        // nunca coincide con una opción correcta, así que cuenta como mala. Las
-        // preguntas de otras unidades se quedan en -1 y no suman "correctas".
-        resp = PREGUNTAS.map(function () { return -1; });
         examenTerminado = false;
         avisoFaltantes = false;
-        iniciarReloj();
+        iniciarReloj(info.restante_seg);
         pantallaSeccion();
       }, 300);
     }).catch(function (e) {
-      msg.textContent = e && e.sinPreguntas
-        ? "Esta unidad todavía no tiene preguntas disponibles."
-        : "No se pudo continuar. Revisa tu conexión e inténtalo de nuevo.";
+      msg.textContent = e && e.mostrar ? e.message : mensajeErrorServidor(e);
       b.disabled = false;
       volver.disabled = false;
-      b.textContent = "Comenzar examen";
+      b.textContent = ex.estado === "en_curso" ? "Continuar examen" : "Comenzar examen";
     });
   };
   c.appendChild(b);
@@ -901,15 +1097,20 @@ function confirmarExamen(m, u) {
   pantalla(c);
 }
 
-// Agrupa las preguntas de la unidad (ya ordenadas) en secciones: cada vez que cambia
-// el texto de "seccion" respecto a la pregunta anterior empieza un grupo nuevo.
-// Las preguntas sin sección que van seguidas forman un solo grupo sin título.
-// "indices" son los índices de la unidad en PREGUNTAS; cada grupo guarda esos mismos
-// índices (así resp[] sigue siendo plano y alineado con la lista completa).
-function agruparSecciones(preguntas, indices) {
+// Error con un texto ya listo para mostrar al alumno (se distingue de los errores del servidor).
+function errorMostrable(texto) {
+  var e = new Error(texto);
+  e.mostrar = true;
+  return e;
+}
+
+// Agrupa las preguntas (ya ordenadas) en secciones: cada vez que cambia el texto de "seccion"
+// respecto a la pregunta anterior empieza un grupo nuevo. Las preguntas sin sección que van
+// seguidas forman un solo grupo sin título. Cada grupo guarda los ÍNDICES de sus preguntas
+// (así resp[] sigue siendo plano y alineado con el orden en que califica el servidor).
+function agruparSecciones(preguntas) {
   var grupos = [];
-  indices.forEach(function (i) {
-    var p = preguntas[i];
+  preguntas.forEach(function (p, i) {
     var ultimo = grupos[grupos.length - 1];
     if (ultimo && ultimo.nombre === p.s) ultimo.indices.push(i);
     else grupos.push({ nombre: p.s, indices: [i] });
@@ -942,10 +1143,22 @@ function bloqueContexto(p) {
   return { nodo: el("div", p.x, "contexto-texto"), iniciar: null };
 }
 
-// Cuenta cuántas preguntas de LA UNIDAD siguen sin responder (las de otras
-// unidades van en -1 a propósito y no deben contarse).
+// Cuenta cuántas preguntas siguen sin responder.
 function contarSinResponder() {
-  return UNIDAD_IDX.filter(function (qi) { return resp[qi] < 0; }).length;
+  return resp.filter(function (r) { return r < 0; }).length;
+}
+
+// Guarda el avance en el servidor poco después del último cambio (se agrupan varios toques en
+// un solo envío). Si falla (sin internet) no pasa nada: se vuelve a mandar con la siguiente
+// respuesta y, al terminar, calificar_examen manda todo.
+function programarGuardado() {
+  if (examenTerminado) return;
+  if (guardarTimer) clearTimeout(guardarTimer);
+  guardarTimer = setTimeout(function () {
+    guardarTimer = null;
+    if (examenTerminado) return;
+    guardarProgreso(examenId, resp.slice()).catch(function () { /* se reintenta con el siguiente cambio */ });
+  }, 1500);
 }
 
 // Muestra UNA sección completa: todas sus preguntas en la misma pantalla.
@@ -972,7 +1185,7 @@ function pantallaSeccion() {
     }
     contextoPrevio = p.x || null;
 
-    bloque.appendChild(el("h2", NUMERO[qi] + ". " + p.t));
+    bloque.appendChild(el("h2", (qi + 1) + ". " + p.t));
     p.o.forEach(function (txt, i) {
       var b = el("button", String.fromCharCode(65 + i) + ") " + txt, "op" + (resp[qi] === i ? " sel" : ""));
       b.onclick = function () {
@@ -981,6 +1194,7 @@ function pantallaSeccion() {
         // la pantalla, para no reiniciar los videos).
         var hermanas = bloque.querySelectorAll(".op");
         for (var k = 0; k < hermanas.length; k++) hermanas[k].className = "op" + (k === i ? " sel" : "");
+        programarGuardado();
       };
       bloque.appendChild(b);
     });
@@ -1020,6 +1234,7 @@ function pantallaSeccion() {
 function fin(porTiempo) {
   if (examenTerminado) return; // ya se está calificando
   examenTerminado = true;
+  if (guardarTimer) { clearTimeout(guardarTimer); guardarTimer = null; }
   detenerReloj();
   if (window.Android) Android.terminarExamen();
   var c = el("div", "", "card");
@@ -1030,20 +1245,34 @@ function fin(porTiempo) {
   intentarCalificar();
 }
 
+// Pantalla final con un solo botón "Salir" (cierra la app y la quita de Recientes).
+function pantallaFinal(titulo, texto, clase) {
+  var c = el("div", "", "card");
+  c.appendChild(el("h1", titulo));
+  c.appendChild(el("p", texto, clase));
+  var b = el("button", "Salir");
+  b.onclick = function () { if (window.Android) Android.salir(); else pantallaInicio(); };
+  c.appendChild(b);
+  pantalla(c);
+}
+
 function intentarCalificar() {
-  calificarExamen(materiaId, alumno.matricula, resp).then(function (resultado) {
-    var c = el("div", "", "card");
-    c.appendChild(el("h1", "Examen terminado"));
-    // El total que se muestra es el de la UNIDAD (el "total" del servidor cuenta toda la materia).
-    c.appendChild(el("p", alumno.nombre + ": " + resultado.correctas + " de " + UNIDAD_IDX.length + " correctas"));
-    var b = el("button", "Salir");
-    b.onclick = function () { if (window.Android) Android.salir(); else pantallaInicio(); };
-    c.appendChild(b);
-    pantalla(c);
-  }).catch(function () {
+  calificarExamen(examenId, resp).then(function (resultado) {
+    pantallaFinal("Examen terminado", alumno.nombre + ": " + resultado.correctas + " de " + resultado.total + " correctas");
+  }).catch(function (e) {
+    var t = String((e && e.message) || "");
+    // El servidor ya cerró el examen por su cuenta: no tiene caso reintentar.
+    if (/Tiempo agotado/i.test(t)) {
+      pantallaFinal("Se acabó el tiempo", "El tiempo terminó antes de que llegara tu entrega. Se calificó el avance que tenías guardado; consulta tu resultado con tu profesor.", "aviso");
+      return;
+    }
+    if (/Intento ya utilizado/i.test(t)) {
+      pantallaFinal("Examen ya enviado", "Este examen ya había sido enviado y calificado.", "aviso");
+      return;
+    }
     var c = el("div", "", "card");
     c.appendChild(el("h1", "No se pudo calificar"));
-    c.appendChild(el("p", "Revisa tu conexión e inténtalo de nuevo. Tus respuestas no se han perdido.", "aviso"));
+    c.appendChild(el("p", /firma|reloj|desajust/i.test(t) ? mensajeErrorServidor(e) : "Revisa tu conexión e inténtalo de nuevo. Tus respuestas no se han perdido.", "aviso"));
     var b = el("button", "Reintentar");
     b.onclick = intentarCalificar;
     c.appendChild(b);
