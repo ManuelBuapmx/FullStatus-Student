@@ -326,6 +326,8 @@ function calificarExamen(examenId, respuestas) {
 // Convierte el texto de un error del servidor en un mensaje para el alumno.
 function mensajeErrorServidor(e) {
   var t = String((e && e.message) || "");
+  // PRISMAL MESH: versión de la app por debajo de la mínima exigida por el servidor.
+  if (/desactualizada/i.test(t)) return "Esta versión de la app ya no es válida. Instala la actualización que te pasó tu profesor para presentar el examen.";
   if (/firma/i.test(t)) return "La app no pudo validar tu examen. Actualiza la app o avisa a tu profesor.";
   if (/reloj|desajust/i.test(t)) return "La hora de tu celular está desajustada. Corrígela e inténtalo de nuevo.";
   var m = /Examen no disponible \((\w+)\)/.exec(t);

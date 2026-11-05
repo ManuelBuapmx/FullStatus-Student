@@ -179,13 +179,16 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String firmar(String accion, String matricula, String materiaId, String ts) {
             try {
-                String mensaje = accion + "|" + matricula + "|" + materiaId + "|" + ts;
+                // PRISMAL MESH: la versión del APK entra en el HMAC y viaja como prefijo
+                // ("<versión>.<hex>"). El servidor rechaza versiones menores a config.version_minima.
+                int version = BuildConfig.VERSION_CODE;
+                String mensaje = accion + "|" + matricula + "|" + materiaId + "|" + ts + "|" + version;
                 Mac mac = Mac.getInstance("HmacSHA256");
                 mac.init(new SecretKeySpec(BuildConfig.FIRMA_SECRETO.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
                 byte[] h = mac.doFinal(mensaje.getBytes(StandardCharsets.UTF_8));
                 StringBuilder sb = new StringBuilder();
                 for (byte b : h) sb.append(String.format("%02x", b));
-                return sb.toString();
+                return version + "." + sb.toString();
             } catch (Exception e) {
                 return "";
             }

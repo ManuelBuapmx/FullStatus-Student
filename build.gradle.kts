@@ -63,8 +63,12 @@ android {
         targetSdk = 34
         // versionCode debe subir en cada versión que quieras que Android
         // reconozca como actualización; versionName es solo el texto visible.
-        versionCode = 4
-        versionName = "0.4"
+        // PRISMAL MESH: en GitHub Actions el versionCode es el número de ejecución (GITHUB_RUN_NUMBER),
+        // así que cada build nueva sube sola. Con ese número se bloquea a las versiones viejas
+        // (config.version_minima en Supabase). Mínimo 5 para quedar por encima de la versión 4.
+        val vc = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 5).coerceAtLeast(5)
+        versionCode = vc
+        versionName = "0.$vc"
 
         // Expone la clave como BuildConfig.FIRMA_SECRETO (la lee MainActivity). Es hexadecimal,
         // así que no necesita escapes dentro de las comillas (y ya viene sin saltos de línea).
