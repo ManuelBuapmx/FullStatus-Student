@@ -11,6 +11,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      exigir_version:
+        description: "Exigir esta versión como mínima (bloquea exámenes a las versiones anteriores)"
+        type: boolean
+        default: false
 
 # CAMBIO (2/oct/2026): permisos mínimos para el token del workflow. Solo necesita leer el código
 # (el workflow no escribe nada al repo: ver nota más abajo).
@@ -101,3 +106,19 @@ jobs:
           name: checkmyknowledge-apk
           path: build/outputs/apk/debug/*.apk
           retention-days: 7
+
+      # PRISMAL MESH: ACTUALIZACIÓN OBLIGATORIA. Al terminar la build, sube config.version_minima en
+      # Supabase al número de esta ejecución: las versiones anteriores dejan de tener acceso a
+      # exámenes. NO corre en cada push (un cambio menor bloquearía a todos antes de repartir el
+      # APK): solo si el mensaje del commit contiene [exigir] o si la ejecución manual marca la casilla.
+      - name: Exigir esta versión como mínima
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.exigir_version) || contains(github.event.head_commit.message, '[exigir]') }}
+        env:
+          CMK_FIRMA_SECRETO: ${{ secrets.CMK_FIRMA_SECRETO }}
+          VERSION: ${{ github.run_number }}
+        run: |
+          KEY=$(grep -oE 'SUPABASE_ANON_KEY = "[^"]+"' src/main/assets/index.html | cut -d'"' -f2)
+          URL=$(grep -oE 'SUPABASE_URL = "[^"]+"' src/main/assets/index.html | cut -d'"' -f2)
+          curl -fsS -X POST "$URL/rest/v1/rpc/exigir_version" \
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+            -d "{\"p_version\": $VERSION, \"p_secreto\": \"$CMK_FIRMA_SECRETO\"}"
