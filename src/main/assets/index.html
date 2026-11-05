@@ -239,7 +239,7 @@ function rpc(nombre, cuerpo) {
 //   validar_acceso(p_matricula, p_contrasena)  -> { ok, matricula, nombre, grupo }
 //                                                 o { ok:false, motivo, minutos? }
 //   crear_contrasena(p_matricula, p_contrasena) -> igual; solo funciona si aún no tiene.
-// motivo: no_registrada | sin_contrasena | incorrecta | bloqueado | ya_tiene | invalida
+// motivo: no_registrada | sin_contrasena | incorrecta | bloqueado | ya_tiene | invalida | no_habilitada
 function llamarAcceso(funcion, matricula, contrasena) {
   var m = String(matricula || "").replace(/\s+/g, "");
   return rpc(funcion, { p_matricula: m, p_contrasena: String(contrasena || "") });
@@ -255,6 +255,8 @@ function mensajeAcceso(r) {
   if (r.motivo === "bloqueado") return "Demasiados intentos fallidos. Espera " + (r.minutos || 10) + " minuto(s) e inténtalo de nuevo.";
   if (r.motivo === "ya_tiene") return "Esta matrícula ya tiene contraseña. Regresa al acceso y entra con ella; si la olvidaste, pide a tu profesor que la restablezca.";
   if (r.motivo === "invalida") return "La contraseña debe tener al menos 6 caracteres.";
+  // PRISMAL MESH: el servidor exige que el profesor habilite al alumno antes de crear su contraseña.
+  if (r.motivo === "no_habilitada") return "Tu registro aún no está habilitado. Pide a tu profesor que lo habilite e inténtalo de nuevo.";
   return "No se pudo continuar. Inténtalo de nuevo.";
 }
 
