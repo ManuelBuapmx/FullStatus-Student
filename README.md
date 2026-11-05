@@ -1,140 +1,166 @@
 # FullStatus Student
 
-App Android del alumno de **PRISMAL MESH**. Propiedad intelectual de PRISMAL MESH. Todos los derechos reservados.
+**Propiedad intelectual exclusiva de PRISMAL MESH.** Todos los derechos reservados. Marca: `PRISMAL MESH` (dos palabras, mayúsculas, separadas por un espacio).
 
-El alumno entra con su matrícula y contraseña, ve sus materias, sus asistencias y calificaciones por unidad, y presenta los exámenes que el profesor le asignó. **Es solo para ver y presentar exámenes:** los puntajes, las ponderaciones, las unidades y las asignaciones los controla el profesor desde **FullStatus** (el programa de administrador).
+App Android de exámenes de opción múltiple para alumnos, con reglas anti-trampa, y consulta de asistencias.
+Es la versión 2.0 de lo que antes se llamaba **CheckMyKnowledge**. **FullStatus** es el programa de escritorio que usa el administrador (registro de asistencia, repo `FullStatus`); **FullStatus Student** es la app del alumno. El profesor administra materias, secciones y preguntas, y ve resultados desde un panel web (`admin.html`, repo `CMKAdmin`).
+> **Nombres que NO cambiaron a propósito** (cambiarlos haría que Android trate la app como otra distinta y obligaría a mover carpetas): `applicationId` / `namespace` = `com.prismalmesh.checkmyknowledge`, la carpeta `src/main/java/com/prismalmesh/checkmyknowledge/` y el artifact `checkmyknowledge-apk` del workflow. Si algún día se renombran, hay que cambiarlos todos juntos (y `origenBase()` en `MainActivity.java` usa el package como origen de los videos de YouTube).
 
-Última actualización de este documento: 25/oct/2026.
+## Cómo está armado
 
----
+| Archivo                                   | Qué es                                                                                                                                                                         |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/main/java/.../MainActivity.java`     | Cascarón nativo: abre un WebView con la app y hace cumplir las reglas anti-trampa.                                                                                             |
+| `src/main/assets/index.html`              | La app del alumno (HTML + JS puro, sin librerías). Habla con Supabase.                                                                                                         |
+| `admin.html`                              | Panel del profesor (login, preguntas, secciones, materias, importar examen por script, resultados). Se abre en un navegador; no va dentro del APK. Vive en el repo `CMKAdmin`. |
+| `src/main/AndroidManifest.xml`            | Nombre visible de la app (`android:label` = "FullStatus Student"), permisos y bloqueo de orientación / multiventana.                                                           |
+| `build.gradle.kts`, `settings.gradle.kts` | Compilación Gradle (`rootProject.name` = `fullstatus-student`).                                                                                                                |
+| `.github/workflows/build.yml`             | Compila el APK en GitHub Actions.                                                                                                                                              |
 
-## 1. Cómo funciona (en corto)
+Backend: Supabase (tablas `materias`, `preguntas`, `resultados`, `alumnos`, `asistencias`; funciones RPC `validar_matricula`, `calificar_examen` y `consultar_asistencias`).
 
-- La app es un "cascarón" nativo de Android (`MainActivity.java`) que muestra en un WebView la app real: `src/main/assets/index.html`.
-- Todo lo sensible (contraseñas, respuestas correctas, calificaciones, asistencias de otros alumnos) vive en **Supabase** y solo se toca con funciones RPC del servidor. La app nunca lee tablas sensibles directo.
-- Las reglas anti-trampa que HTML/JS no puede hacer solo las hace Android (ver sección 3).
+## Acceso del alumno (`index.html` + Supabase)
 
-## 2. Pantallas
+- **Solo con matrícula.** El alumno escribe su matrícula; la app llama a la función `validar_matricula` de Supabase. Si existe y está activa, entra; si no, ve "Matrícula no registrada" (sin pistas de matrículas parecidas).
+- **Pantalla de inicio:** después de entrar se muestran nombre, matrícula y grupo, y un menú con **Exámenes** y **Asistencias**. La vigilancia anti-trampa empieza solo al pulsar "Comenzar examen"; moverse por el inicio y por Asistencias no anula nada.
+- **Encabezado del examen:** barra fija arriba con el reloj y, debajo, `nombre · matrícula · Grupo`, tal como los devuelve el servidor.
+- **La validación es del lado del servidor.** Tabla `alumnos(matricula PK, nombre, grupo, activo, creado_en)` con RLS: el rol `anon` no puede leerla ni escribirla (privilegios revocados), solo el admin desde el panel. La lista completa nunca viaja a la app.
+- **Funciones RPC:**
+  * `validar_matricula(p_matricula)` → `{matricula, nombre, grupo}` o error `Matrícula no registrada`.
+  * `calificar_examen(p_materia_id, p_matricula, p_respuestas)` → valida la matrícula OTRA VEZ, toma nombre y grupo de la tabla y guarda el resultado. **Ya no acepta un nombre libre** (la versión anterior `calificar_examen(bigint, text-nombre, jsonb)` se eliminó para que no sirva de puerta trasera: un APK anterior ya no puede calificar).
+  * `consultar_asistencias(p_matricula)` → valida la matrícula en el servidor y devuelve SOLO las asistencias de esa matrícula (ver "Asistencias del alumno").
+- **Resultados:** `resultados` tiene columnas nuevas `matricula` y `grupo`; `nombre` guarda solo el nombre.
+- **Alumnos:** por ahora se administran desde el Table Editor de Supabase (se puede importar un CSV con columnas `matricula,nombre,grupo`). `activo = false` impide entrar sin borrar historial.
+- **Límite conocido:** al ser acceso solo por matrícula, quien conozca la matrícula de un compañero puede entrar como él (y ver sus asistencias), y puede probar matrículas (suelen ser predecibles). No hay otro factor. Si hace falta, añadir un solo intento por matrícula/materia o un PIN por alumno.
 
-1. **Acceso:** matrícula + contraseña (con botón "Ver"). Debajo, el enlace **Crear contraseña**. Matrícula inexistente: "Matrícula no registrada". 5 contraseñas incorrectas seguidas bloquean la matrícula 10 minutos.
-2. **Crear contraseña:** matrícula, contraseña (mínimo 6 caracteres) y repetirla. Solo se puede crear **una vez**; si el alumno la olvida, el profesor la restablece. Al guardar, regresa al acceso para entrar con matrícula y contraseña.
-3. **Inicio:** datos del alumno (nombre, matrícula, grado, grupo y fecha de hoy). Un botón de tres rayas en la esquina izquierda abre un panel lateral (mitad de la pantalla) con **Materias** y, hasta abajo, **Cerrar sesión**. El grado y el grupo salen de `alumnos.grupo` ("10B" → grado 10, grupo B).
-4. **Materia:** un bloque por **unidad**: calificación sobre 10 con desglose, y asistencias/faltas/retardos con el detalle **solo de las fechas de esa unidad**. Botón **Exámenes**.
-5. **Exámenes:** exámenes de la materia agrupados por unidad y, dentro de cada unidad, en el orden Ordinario → Remedial → Extraordinario → Extraordinario 2. Solo se activan los que el profesor asignó.
-6. **Examen:** reloj (el tiempo restante lo manda el servidor), preguntas por sección, avance guardado en el servidor mientras contesta y resultado al terminar.
+## Asistencias del alumno
 
-Cada alumno ve **solo sus materias** (las que tienen asistencias registradas más los exámenes que tenga asignados).
+Las asistencias se **capturan en FullStatus de escritorio** (repo `FullStatus`) y la app Student solo las **consulta**.
 
-## 3. Reglas anti-trampa (Android)
+- **Origen de los datos:** el módulo `supabase-asistencias.js` de FullStatus sube el estado local a Supabase con la función `publicar_asistencias` (solo la puede ejecutar un usuario registrado en la tabla `admins`). Cada subida **reemplaza** lo que hubiera de ese grupo.
+- **Cruce de alumnos:** FullStatus no guarda matrícula, así que `publicar_asistencias` liga a cada alumno con la tabla `alumnos` **por nombre** (se ignoran acentos, mayúsculas y orden de las palabras; si hay homónimos desempata por grupo). Los que no se pueden ligar no verán sus asistencias y FullStatus los lista con un aviso.
+- **Tabla `asistencias`:** `(matricula, origen_grupo, grupo, materia, fecha, estado, justificada, nota)`; `estado` es `P` (asistencia), `A` (falta) o `R` (retardo). **RLS cerrada:** ni `anon` ni `authenticated` pueden leerla ni escribirla directo; solo las funciones `SECURITY DEFINER` la tocan.
+- **`consultar_asistencias(p_matricula)`** devuelve un arreglo, uno por materia/grupo: `grupo, materia, asistencias, justificadas, faltas, retardos, faltas_equivalentes, detalle[]`. Las cuentas se calculan en el servidor; la app solo las muestra.
+- **Reglas de cuenta (las mismas de FullStatus):** una falta justificada cuenta como asistencia; cada 3 retardos equivalen a 1 falta (`faltas_equivalentes = faltas + retardos / 3`, entero).
+- **Pantalla (`pantallaAsistencias` en `index.html`):** una tarjeta por materia con los totales, y un botón "Ver detalle" que abre la lista por fecha con su etiqueta (Asistencia, Falta, Retardo, Falta justificada) y la nota del justificante. Sin `alert`/`confirm`, y no inicia la vigilancia anti-trampa.
+- **Permisos:** `anon` debe poder ejecutar `consultar_asistencias` (`grant execute ... to anon`). Si la pantalla no carga o el login falla con `permission denied`, revisar con `has_function_privilege('anon', oid, 'execute')`.
 
-Mientras el examen está activo (`examenActivo == true`), cualquier cosa sospechosa llama a `anularExamen()`, que cierra la app por completo:
+## Cómo ve el examen el alumno (`index.html`)
 
-- `FLAG_SECURE`: sin capturas ni grabación de pantalla (aparece negra en Recientes).
-- Perder el foco (notificaciones, ventanas flotantes, ajustes rápidos) o ir a Inicio/Recientes cierra la app.
-- El botón Atrás no hace nada durante el examen.
-- Sin multiventana, orientación fija en vertical, sin menú de copiar/pegar.
+- **Una sección por pantalla, con todas sus preguntas juntas.** Las preguntas se agrupan por el texto de `preguntas.seccion`: cada vez que cambia respecto a la pregunta anterior (en orden) empieza una sección nueva. Las preguntas seguidas sin sección forman un solo grupo sin título. Botones **← Sección anterior** / **Siguiente sección →**; el alumno puede volver a corregir respuestas.
+- **El contexto (video/texto) se muestra una sola vez** cuando varias preguntas seguidas de la misma sección lo comparten; reaparece si cambia.
+- **Temporizador de 1 hora** (`DURACION_MIN = 60` al inicio del `<script>`). Barra fija arriba con la cuenta regresiva; se pone roja en los últimos 5 min. Se calcula con una hora de fin (`Date.now()`), no restando 1 por tick. Al llegar a 0 el examen **se entrega solo** con lo contestado.
+- **Preguntas sin responder** se envían como `-1` en `p_respuestas` (nunca `null`), así el arreglo siempre lleva un número por pregunta y `-1` cuenta como mala (verificado: `calificar_examen` solo compara `respuesta = correcta`).
+- En la última sección, si faltan respuestas se avisa una vez y el segundo toque en **Terminar de todos modos** entrega. No se usa `confirm()`: en el WebView no funciona y robaría el foco (anularía el examen).
+- El reloj corre solo en el cliente: si el alumno cierra la app, el examen se anula y empieza de cero con reloj nuevo (misma regla de siempre).
 
-La vigilancia empieza solo al pulsar "Comenzar" (`Android.iniciarExamen()`) y termina al entregar (`Android.terminarExamen()`).
+## Reglas anti-trampa (en `MainActivity.java`)
 
-**Reanudaciones:** si el alumno sale del examen, el intento queda abierto. Al volver cuenta como una *reanudación* (máximo `max_reanudaciones`, hoy 2), recupera las respuestas guardadas y el tiempo **no se reinicia**. Al pasar el máximo, el examen se anula con 0. Si se acaba el tiempo, el servidor califica el avance guardado.
+Mientras el examen está activo, la app se **cierra por completo** y el alumno empieza de cero si:
 
-**Firma de las llamadas:** `iniciar_intento`, `obtener_preguntas`, `guardar_progreso` y `calificar_examen` exigen una firma HMAC-SHA256 de `accion|matricula|materiaId|ts`. La calcula `Puente.firmar()` en `MainActivity.java` con la clave `BuildConfig.FIRMA_SECRETO`, que llega del secreto de GitHub **`CMK_FIRMA_SECRETO`** y nunca se expone al JavaScript. El servidor solo acepta firmas recientes (la hora del celular debe estar bien). Fuera de la app (en un navegador) los exámenes no funcionan porque no hay firma.
+- pierde el foco (notificaciones, ventanas flotantes),
+- va a Inicio, Recientes o cambia de app,
+- el sensor de proximidad queda tapado 800 ms seguidos (celular pegado a la pantalla).
 
-## 4. Archivos del repositorio
+Además: capturas y grabación de pantalla bloqueadas (`FLAG_SECURE`), botón Atrás desactivado,
+sin orientación horizontal ni multiventana, sin navegación a otros sitios.
 
-| Archivo | Para qué sirve |
-|---|---|
-| `src/main/java/com/prismalmesh/checkmyknowledge/MainActivity.java` | Única Activity: WebView, reglas anti-trampa y puente JS (`iniciarExamen`, `terminarExamen`, `firmar`, `salir`). |
-| `src/main/assets/index.html` | La app del alumno (pantallas, llamadas a Supabase). |
-| `src/main/AndroidManifest.xml` | Único permiso: `INTERNET`. Sin cámara, micrófono, almacenamiento ni ubicación. |
+### Sensor de proximidad: detalles y límites
 
-El `applicationId` (`com.prismalmesh.checkmyknowledge`) **no se cambia a propósito**: cambiarlo haría que Android trate la app como otra distinta. Los videos de YouTube se cargan con origen `https://<applicationId>` (ver `origenBase()` en `MainActivity.java`).
+- Se considera "cerca" una lectura menor a `min(rangoMáximoDelSensor, 5 cm)` (`DISTANCIA_CERCA_CM`).
+- Solo detecta algo pegado al **borde superior** de la pantalla (donde está el sensor). Un segundo celular al lado o más abajo **no** se detecta: es una defensa parcial.
+- Si el equipo no tiene sensor, la defensa no se activa en ese equipo.
+- **Estado (2/oct/2026): en pruebas reales sigue sin anular el examen; investigación en pausa.** Para diagnosticar existe `DEPURAR_SENSOR`.
 
-## 5. Servidor (Supabase, proyecto `checkmyknowledge`)
+### Modo depuración del sensor (`DEPURAR_SENSOR`)
 
-**Tablas** (con RLS cerrada: la app no las lee directo)
+Con `DEPURAR_SENSOR = true` en `MainActivity.java` la app muestra avisos (Toast) con el sensor detectado, su rango y cada lectura (`valor`, `umbral`, `cerca`, `examenActivo`). Los Toast no roban el foco, así que no anulan el examen.
 
-| Tabla | Contenido |
-|---|---|
-| `alumnos` | matrícula, nombre, grupo, activo, hash de contraseña, intentos fallidos y bloqueo. |
-| `asistencias` | marcas por alumno y fecha (P, A, R; falta justificada). Las publica FullStatus. |
-| `unidades` | unidades de cada grupo y materia con sus fechas desde/hasta. Las publica FullStatus. |
-| `calificaciones_unidad` | puntos por unidad: asistencias, actividades, participaciones y examen, más conteos. Las publica FullStatus. |
-| `materias` | cada fila es **un examen** (nombre, activa, ventana de fechas, `solo_asignados`). |
-| `preguntas` | preguntas de cada examen (la respuesta correcta nunca sale del servidor). |
-| `asignaciones` | qué alumno puede presentar qué examen (y su ventana de fechas propia). |
-| `intentos` / `resultados` | intento en curso (avance, reanudaciones) y resultado final. Uno por alumno y examen. |
-| `materia_unidades` | cuántas unidades tiene cada materia (Inglés I: 2, Inglés VI: 3, Inglés IX: 2, Ética Profesional: 3). |
-| `config` | ajustes (ver sección 8). |
-| `admins` | usuarios con permiso de publicar y restablecer contraseñas. |
+| Qué ves al tapar el sensor con el examen empezado | Causa                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------ |
+| Ninguna lectura                                   | El sensor no entrega eventos o no se tapa el sensor correcto |
+| `cerca=true examenActivo=false`                   | Falla el puente JS (`iniciarExamen` no llega)                |
+| `cerca=true examenActivo=true` y no se cierra     | Bug en el temporizador                                       |
 
-**Funciones que usa la app del alumno:** `validar_acceso`, `crear_contrasena`, `mis_materias`, `consultar_asistencias`, `mis_calificaciones`, `mis_examenes`, `iniciar_intento`, `obtener_preguntas`, `guardar_progreso`, `calificar_examen`.
+**⚠ Antes de repartir el APK a los alumnos, poner `DEPURAR_SENSOR = false`.**
 
-**Funciones solo para admins (FullStatus):** `publicar_asistencias`, `publicar_calificaciones`, `restablecer_contrasena`.
+## Panel del profesor (`admin.html`)
 
-> Aviso de seguridad: la contraseña protege el acceso desde la app y los exámenes van firmados, pero las funciones de solo lectura (`mis_materias`, `consultar_asistencias`, `mis_calificaciones`, `mis_examenes`) aceptan solo la matrícula. Cerrar esto por completo requeriría una sesión por alumno.
+Pestañas: **Preguntas · Secciones · Materias · Importar · Resultados**.
 
-## 6. Cómo nombrar los exámenes
+### Preguntas
 
-La **materia, la unidad y el tipo** de un examen se reconocen por su **nombre** en la tabla `materias`:
+- Filtros por materia y por sección (incluye "(Sin sección)").
+- Casilla por pregunta y "seleccionar todas las visibles". Con las marcadas: **Asignar sección**, **Quitar sección** (no borra preguntas) y **Borrar seleccionadas**.
+- **Borrar todas las visibles**: borra lo que muestre el filtro actual (sin filtros = todo). Pide escribir `BORRAR`.
+- Cada pregunta muestra etiquetas de sección y de contexto (▶ Video / 📄 Texto de apoyo).
 
-```
-INGLÉS I - Unidad 1 - Ordinario
-INGLÉS I - Unidad 1 - Remedial
-INGLÉS I - Unidad 2 - Extraordinario
-INGLÉS VI - Unidad 3 - Extraordinario 2
-ÉTICA PROFESIONAL - Unidad 1 - Ordinario
-```
+### Secciones
 
-- **Ordinario:** para todos. Aparece siempre; se activa si está asignado o abierto a todos (`solo_asignados = false`).
-- **Remedial:** alumnos que reprobaron la materia (menos de 7 en la unidad).
-- **Extraordinario:** alumnos que reprobaron el remedial.
-- **Extraordinario 2:** alumnos que reprobaron el extraordinario.
-- Remedial y extraordinarios **solo aparecen si el profesor se los asignó** al alumno. La asignación es manual.
-- Un nombre sin tipo cuenta como Ordinario; sin "Unidad N", el examen sale primero y sin encabezado de unidad.
-- Si una unidad aún no tiene examen creado, el alumno ve su Ordinario en gris: "Aún no hay examen para esta unidad".
-- Para que una unidad nueva aparezca, hay que registrar la materia en `materia_unidades`.
+Las secciones **no son una tabla**: son un texto libre en `preguntas.seccion` (así lo usa `index.html`). Por eso:
 
-## 7. Datos que publica FullStatus
+- *Agregar* = poner ese texto a un grupo de preguntas, por rango de `#` de orden ("de la 11 a la 20 es Listening") o con las casillas de Preguntas.
+- *Renombrar* cambia el texto en todas sus preguntas. *Quitar sección* vacía el texto (las preguntas se conservan). *Borrar preguntas* elimina la sección con sus preguntas.
+- ⚠ Como el alumno ve **una sección por pantalla**, las preguntas de una sección deben tener `orden` consecutivo; si se intercalan con otra sección, se partirán en varias pantallas.
 
-- **Asistencias y unidades:** `publicar_asistencias`. Reemplaza todo el grupo en cada envío. Los alumnos se enlazan con la base por nombre normalizado (con desempate por grupo).
-- **Calificaciones por unidad:** `publicar_calificaciones`, mismo estilo. La calificación de la unidad es la suma de asistencias + actividades + participaciones + examen (sobre 10). Los puntos y las ponderaciones los calcula FullStatus; la app solo los muestra.
+### Materias
 
-Formato de `publicar_calificaciones`:
+Crear, editar (nombre/orden), **Activar/Desactivar** (oculta a los alumnos sin borrar nada) y **Borrar**. Borrar una materia elimina sus preguntas y, con confirmación aparte, sus resultados. Si solo quieres ocultarla, desactívala.
 
-```json
-{ "grupos": [ { "id": "<id del grupo en FullStatus>", "nombre": "7B", "materia": "INGLÉS VI",
-  "alumnos": [ { "nombre": "APELLIDOS NOMBRE",
-    "unidades": [ { "nombre": "Unidad 1", "asistencias": 1.8, "actividades": 2.5,
-      "participaciones": 0.7, "examen": null,
-      "n_actividades": 4, "total_actividades": 5, "n_participaciones": 3 } ] } ] } ] }
-```
+### Importar por script (Apps Script de Forms)
 
-Estado de la unidad en la app: **En curso** mientras falte el examen; con examen, **Aprobada** si la suma es 7 o más y **En remedial** si es menor al mínimo.
+Además de `FormApp.create`, `addMultipleChoiceItem`, `setTitle`, `createChoice`, `setChoices`:
 
-## 8. Ajustes (`config`)
+| Llamada                                                              | Efecto                                                                                                                                  |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `FormApp.create('Título')`                                           | El título es la **sección** de sus preguntas                                                                                            |
+| `exam.addSectionHeaderItem().setTitle('Listening')`                  | Cambia la **sección** de las preguntas siguientes y reinicia el contexto                                                                |
+| `...setHelpText('texto')` (en el encabezado)                         | Ese texto es el **contexto** de las preguntas siguientes (p. ej. pasaje de lectura)                                                     |
+| `exam.addVideoItem().setVideoUrl('link YouTube')`                    | Las preguntas siguientes llevan ese **video** (se guarda en cada una; el alumno lo ve una vez por bloque) hasta otro video o encabezado |
+| `item.setContext('link o texto')` / `item.setVideoUrl(...)`          | Contexto solo para esa pregunta                                                                                                         |
+| `exam.addPageBreakItem().setTitle('SECTION 1')`                      | Inicia una **sección** (título de la página); un encabezado posterior se agrega: `SECTION 1 · Part A`                                   |
+| Link de YouTube dentro de un `setHelpText('... Click to play: URL')` | Se detecta y se guarda solo el video (la app muestra solo el video si hay link)                                                         |
 
-| Clave | Para qué |
-|---|---|
-| `exigir_firma` | `true`: el servidor exige la firma en las llamadas del examen. |
-| `firma_secreto` | Clave de la firma. **Secreta; debe ser la misma que `CMK_FIRMA_SECRETO`.** |
-| `max_reanudaciones` | Veces que un alumno puede reanudar un examen (hoy 2). |
-| `minimo_aprobatorio` | Calificación mínima para no estar en remedial (hoy 7). |
-| `grupo_prueba` | Grupo de pruebas (hoy `12F`). |
+Las funciones auxiliares con parámetros (p. ej. `addQuestion(exam, ...)`) no se ejecutan solas: solo las funciones sin parámetros; `Logger.log` y `exam.getEditUrl()` se aceptan y se ignoran. Los links de YouTube (watch, youtu.be, embed, shorts, live) se guardan siempre como `https://www.youtube.com/watch?v=ID`, que es el formato que reconoce `index.html`. Un link que **no** sea de YouTube se marca como error (los links externos rompen el examen).
 
-## 9. Grupo de prueba
+### Videos de YouTube dentro de la app
 
-Los alumnos del grupo indicado en `config.grupo_prueba` (hoy **12F**) ven **todas las materias** y **todos los exámenes**, sin asignación ni límite de fechas, para simular la app como la vería un alumno. Cada examen se puede presentar una sola vez; para repetir uno hay que borrar su fila en `intentos` y en `resultados`.
+Una página `file://` no tiene origen válido y YouTube responde "error de configuración del reproductor". Por eso `MainActivity` carga `index.html` con `loadDataWithBaseURL(origenBase(), ...)` (origen `https://<package de la app>`) y activa DOM storage. Si el error persiste, cambiar solo `origenBase()`. Un video con embebido deshabilitado por su dueño tampoco carga: probar con otro.
 
-## 10. Compilar
+### Permisos (RLS)
 
-El APK se compila con GitHub Actions. Requiere el secreto **`CMK_FIRMA_SECRETO`** en el repositorio. Después de subir cambios a `src/main/assets/index.html` (o a los demás archivos), hay que esperar a que termine el build e instalar el APK nuevo en el celular; si no, el celular sigue con la versión anterior.
+El panel cuenta las filas afectadas por cada operación; si la base no deja modificar, avisa en lugar de fingir éxito. Para crear/editar/borrar **materias** hace falta una política RLS que permita al admin escribir en `materias` (igual que la que ya existe para `preguntas`).
 
-## 11. Pendientes
+## Reglas para quien modifique el código (persona o IA)
 
-- Que FullStatus publique las calificaciones por unidad con `publicar_calificaciones` (la app y el servidor ya están listos).
-- Botón en FullStatus para restablecer la contraseña de un alumno (hoy se puede desde Supabase con `restablecer_contrasena`).
-- Crear los exámenes Ordinarios de cada unidad con el nombre indicado en la sección 6.
-- Decidir si el examen Remedial se activa solo cuando el alumno saca menos de 7 (hoy es manual).
-- Dar de alta el grupo 4C y sus asistencias de Ética Profesional.
-- Opcional: simplificar las pantallas (menos botones, aviso de examen disponible, entrar directo si solo hay una materia) y que el botón Atrás del celular cierre el panel lateral en vez de salir.
+1. **Comenta el código.** Los comentarios son obligatorios: explican el *porqué*, no solo el qué, para que cualquiera pueda retomarlo.
+2. **Entrega archivos completos y listos para descargar**, no fragmentos.
+3. **Actualiza este README** en cada cambio relevante.
+4. **Nunca se envía la respuesta correcta al cliente.** `index.html` solo pide `texto, opciones, contexto, seccion`; la calificación la hace `calificar_examen` en Supabase. No agregar `correcta` al `select` del cliente.
+5. **Cualquier regla anti-trampa nueva debe terminar en `anularExamen()`** de `MainActivity.java`.
+6. **Los links externos romperían el examen**: abrir otra app (p. ej. YouTube) hace que la app pierda el foco y se anule. Los videos van *embebidos* (iframe), nunca como link.
+7. **El puente JS↔Java** (`Puente`, `window.Android`) tiene tres métodos: `iniciarExamen`, `terminarExamen`, `salir`. Si cambias nombres, cámbialos en `index.html` también.
+8. **No volver a agregar pasos al workflow que hagan commit/push** al repo (ver nota en `build.yml`).
+9. La clave `anon` de Supabase en `index.html` y `admin.html` es pública por diseño; la seguridad real está en las políticas RLS. **Nunca poner la Secret key (service_role) en el cliente ni en el repo.**
+10. **`DEPURAR_SENSOR` debe estar en `false`** en cualquier APK que se reparta a alumnos.
+11. **No usar `alert()`/`confirm()`/`prompt()` en `index.html`**: abren un diálogo nativo que roba el foco y anula el examen. Usar mensajes dentro de la página.
+12. **La lista de alumnos y las asistencias nunca van completas en el cliente.** Viven en las tablas `alumnos` y `asistencias` (RLS cerrada para `anon`); la app solo usa `validar_matricula`, `calificar_examen` y `consultar_asistencias`. No dar permisos de lectura a `anon` sobre `alumnos` ni sobre `asistencias`. Si una función RPC deja de funcionar con `permission denied`, el rol `anon` perdió su `execute`: comprobarlo con `has_function_privilege`.
+13. **Identidad de marca:** todo comentario, documento o variable que nombre a la empresa usa `PRISMAL MESH` (dos palabras separadas por un espacio). Los archivos nuevos llevan en el encabezado: `Propiedad intelectual de PRISMAL MESH. Todos los derechos reservados.`
+
+## Compilar
+
+Push a `main` (o "Run workflow" en la pestaña Actions). El APK queda como artifact `checkmyknowledge-apk`. `admin.html` no se compila: se sube/abre aparte.
+
+**Secreto requerido:** el workflow exige el secreto de GitHub `CMK_FIRMA_SECRETO` (Settings → Secrets and variables → Actions → New repository secret). Los secretos son **por repositorio**: no viajan al copiar o clonar el código. Es un valor propio (por ejemplo 64 caracteres aleatorios, en una sola línea) con el que se prepara la llave de firma estable del APK. **Guárdalo en un lugar seguro**: GitHub no lo vuelve a mostrar, y si cambia, el APK sale con otra firma y Android pide desinstalar la versión anterior antes de instalarlo. Sin este secreto el paso "Verificar secreto de firma" detiene el build.
+
+## Historial de cambios
+
+- **10/oct/2026 (2)** — Asistencias del alumno: la pantalla "Asistencias" de `index.html` ya muestra datos reales (totales por materia y detalle por fecha) con la función `consultar_asistencias`. Nueva tabla `asistencias` con RLS cerrada, llenada desde FullStatus de escritorio con `publicar_asistencias` (solo admins registrados en la tabla `admins`). Regla 12 ampliada.
+- **10/oct/2026** — Renombre a **FullStatus Student** (versión 2.0 de CheckMyKnowledge): `android:label`, `rootProject.name`, título y encabezados de `index.html`, y este README. `applicationId`, `namespace`, carpeta del package y artifact del workflow se conservan. Repo nuevo `FullStatus-Student` con su propio secreto `CMK_FIRMA_SECRETO`.
+- **2/oct/2026 (6)** — Identidad PRISMAL MESH en encabezados y documentación (regla 13).
+- **2/oct/2026 (5)** — Acceso por **matrícula** validada en Supabase: tabla `alumnos` (RLS cerrada), funciones `validar_matricula` y `calificar_examen` nueva (recibe matrícula, reemplaza a la anterior), columnas `matricula` y `grupo` en `resultados`. `index.html` muestra nombre, matrícula y grupo en el encabezado fijo del examen.
+- **2/oct/2026 (4)** — `index.html`: cada sección se muestra completa en una sola pantalla (todas sus preguntas), con navegación entre secciones; contexto mostrado una vez por bloque; temporizador de 60 min (`DURACION_MIN`) con entrega automática; preguntas sin responder se mandan como `-1`.
+- **2/oct/2026 (3)** — `MainActivity`: `index.html` se carga con origen https (`origenBase()`) y DOM storage activo, para corregir el error de configuración del reproductor de YouTube.
+- **2/oct/2026 (2)** — Importador: corregido `Logger is not defined`; solo ejecuta funciones sin parámetros (antes truena con `addQuestion(...)`); soporta `addPageBreakItem` como sección y links de YouTube dentro de `setHelpText`.
+- **2/oct/2026** — `admin.html`: pestañas Materias y Secciones, selección y borrado masivo de preguntas, asignar/quitar secciones, soporte de video de YouTube y encabezados de sección en el script de importación, detección de operaciones bloqueadas por RLS.
+- **1/oct/2026** — Modo depuración del sensor (`DEPURAR_SENSOR`), umbral de "cerca" a `min(rangoMax, 5 cm)`, reglas 1–3 y 10 del README.
