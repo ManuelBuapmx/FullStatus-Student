@@ -176,6 +176,10 @@ public class MainActivity extends Activity {
          * verifica _verificar_firma en Supabase. Devuelve "" si algo falla (el servidor la
          * rechazará con "Firma requerida"). No toca estado: puede correr en el hilo del WebView.
          */
+        /** PRISMAL MESH: número de versión del APK (versionCode), para mostrarlo en pantalla. */
+        @JavascriptInterface
+        public int versionApp() { return BuildConfig.VERSION_CODE; }
+
         @JavascriptInterface
         public String firmar(String accion, String matricula, String materiaId, String ts) {
             try {

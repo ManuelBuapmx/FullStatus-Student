@@ -200,6 +200,9 @@
 </head>
 <body>
 <div id="app"></div>
+<!-- PRISMAL MESH: versión del APK, fija abajo a la derecha en todas las pantallas, para comprobar
+     que el alumno tiene la actualización. La pone el script de abajo con Android.versionApp(). -->
+<div id="ver" style="position:fixed;right:8px;bottom:6px;font-size:12px;color:#555;pointer-events:none"></div>
 <script>
 // ---- Conexión con Supabase ----
 // La clave "anon"/"publishable" está pensada para ir en el cliente: por sí sola
@@ -1284,6 +1287,8 @@ function intentarCalificar() {
   });
 }
 
+// Muestra "v<número>" (la misma versión que el servidor compara con version_minima).
+try { document.getElementById("ver").textContent = (window.Android && Android.versionApp) ? "v" + Android.versionApp() : "v?"; } catch (e) {}
 pantallaLogin();
 </script>
 </body>
