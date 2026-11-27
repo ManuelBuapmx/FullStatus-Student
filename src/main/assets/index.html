@@ -64,7 +64,9 @@
     participaciones y examen, cada una con sus puntos. Los puntos y las ponderaciones los controla el
     profesor en FullStatus y los publica con publicar_calificaciones; la app solo los muestra
     (RPC mis_calificaciones). Estado: "En curso" mientras falte el examen; con examen, "Aprobada" o
-    "En remedial" si la suma es menor al mínimo (config.minimo_aprobatorio, 7).
+    "En remedial" si la suma es menor al mínimo (config.minimo_aprobatorio, 7). Remedial y extraordinarios NO
+    sustituyen la calificación de la unidad (tope config.tope_regularizacion, 8): si aprueba en una etapa se
+    muestra "Aprobada en Remedial/Extraordinario N" y el historial de etapas queda visible.
 -->
 <html lang="es">
 <head>
@@ -179,6 +181,9 @@
   .cal-fila { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-top: 1px solid #d3e2f4; font-size: 14px; }
   .cal-fila b { white-space: nowrap; }
   .b-g { background: #757575; }
+  /* Historial de regularización (remedial y extraordinarios): una fila por etapa, la calificación de la unidad no cambia. */
+  .cal-hist { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #9db6d4; }
+  .cal-hist h3 { font-size: 13px; margin: 0 0 2px; color: #333; }
   /* --- Resumen de asistencias ---
      Totales en una cuadrícula de 2 x 2 y un detalle por fecha que se abre y se
      cierra con un botón. Se usa dentro de la pantalla de cada materia. */
@@ -895,6 +900,27 @@ function pts(n) {
 
 // Calificación de una unidad: total sobre 10, estado y desglose (asistencias, actividades,
 // participaciones y examen). Solo lectura: los puntos los calcula FullStatus.
+// Estado de una unidad para la tarjeta: texto de la etiqueta, su clase y el aviso. Función pura (se prueba aparte).
+// Usa c.estado del servidor (en_curso | aprobada | aprobada_en_etapa | reprobada) y c.etapas (historial de remedial y
+// extraordinarios, con tope). La calificación de la unidad (c.calificacion) NUNCA se sustituye por la de una etapa.
+var SIGUIENTE_ETAPA = { 0: "el examen remedial", 2: "el examen Extraordinario 1", 3: "el examen Extraordinario 2", 4: "el examen Extraordinario 3" };
+function estadoDeUnidad(c) {
+  var etapas = Array.isArray(c.etapas) ? c.etapas : [];
+  if (!c.completa) return { t: "En curso", c: "b-g", aviso: "" };
+  var estado = c.estado || (c.en_remedial ? "reprobada" : "aprobada");   // respaldo si el servidor es de una versión anterior
+  if (estado === "aprobada") return { t: "Aprobada", c: "b-p", aviso: "" };
+  if (estado === "aprobada_en_etapa") {
+    var en = c.aprobada_en || "regularización";
+    return { t: "Aprobada en " + en, c: "b-p", aviso: "Tu calificación de la unidad se queda como estaba (" + pts(c.calificacion) + "); aprobaste la unidad en " + en + "." };
+  }
+  // reprobada: ¿qué sigue? Según la última etapa presentada.
+  var ultima = etapas.length ? etapas[etapas.length - 1].tipo : 0;
+  var sig = SIGUIENTE_ETAPA[ultima];
+  if (!sig) return { t: "Reprobada", c: "b-a", aviso: "Ya presentaste todas las oportunidades de esta unidad sin aprobar." };
+  return { t: ultima ? "Te toca otra oportunidad" : "En remedial", c: "b-a",
+    aviso: ultima ? "No aprobaste la etapa anterior: te toca " + sig + "." : "Tu calificación quedó por debajo de " + pts(c.minimo) + ": te toca el examen remedial." };
+}
+
 function tarjetaCalificacion(c) {
   var caja = el("div", "", "cal-caja");
   var cab = el("div", "", "cal-cab");
@@ -902,7 +928,7 @@ function tarjetaCalificacion(c) {
   izq.appendChild(el("div", pts(c.calificacion) + " / 10", "cal-num"));
   izq.appendChild(el("div", c.completa ? "Calificación de la unidad" : "Lleva " + pts(c.calificacion) + " de 10 (falta el examen)", "cal-etq"));
   cab.appendChild(izq);
-  var et = !c.completa ? { t: "En curso", c: "b-g" } : (c.en_remedial ? { t: "En remedial", c: "b-a" } : { t: "Aprobada", c: "b-p" });
+  var et = estadoDeUnidad(c);
   cab.appendChild(el("span", et.t, "badge " + et.c));
   caja.appendChild(cab);
   function fila2(etiqueta, valor) {
@@ -917,7 +943,24 @@ function tarjetaCalificacion(c) {
   caja.appendChild(fila2("Actividades" + (hayAct ? " (" + c.n_actividades + (hayTot ? " de " + c.total_actividades : "") + ")" : ""), pts(c.actividades)));
   caja.appendChild(fila2("Participaciones" + (c.n_participaciones !== null && c.n_participaciones !== undefined ? " (" + c.n_participaciones + ")" : ""), pts(c.participaciones)));
   caja.appendChild(fila2("Examen", c.examen === null || c.examen === undefined ? "Pendiente" : pts(c.examen)));
-  if (c.en_remedial) caja.appendChild(el("p", "Tu calificación quedó por debajo de " + pts(c.minimo) + ": te toca el examen remedial.", "aviso"));
+  // Historial de regularización: se queda visible aunque ya haya aprobado en una etapa.
+  var etapas = Array.isArray(c.etapas) ? c.etapas : [];
+  if (etapas.length) {
+    var hist = el("div", "", "cal-hist");
+    hist.appendChild(el("h3", "Historial de regularización"));
+    etapas.forEach(function (e) {
+      var f = el("div", "", "cal-fila");
+      f.appendChild(el("span", e.etapa));
+      var v = el("b", pts(e.calificacion) + (e.aprobada ? " · aprobó" : " · no aprobó"));
+      v.className = e.aprobada ? "s-p" : "s-a";
+      f.appendChild(v);
+      hist.appendChild(f);
+    });
+    var tope = etapas[0].tope;
+    if (tope !== null && tope !== undefined) hist.appendChild(el("p", "El remedial y los extraordinarios tienen una calificación máxima de " + pts(tope) + " y no sustituyen la calificación de tu unidad.", "detalle-nota"));
+    caja.appendChild(hist);
+  }
+  if (et.aviso) caja.appendChild(el("p", et.aviso, "aviso"));
   return caja;
 }
 

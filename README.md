@@ -155,6 +155,13 @@ Push a `main` (o "Run workflow" en la pestaña Actions). El APK queda como artif
 
 ## Historial de cambios
 
+### 2026-11-26 — Remedial y extraordinarios: estado «Aprobada en …», historial y tope de 8
+
+- **`index.html` (`estadoDeUnidad` / `tarjetaCalificacion`):** la tarjeta de calificación de la unidad usa `estado` y `etapas` de `mis_calificaciones`. La calificación de la unidad **nunca se sustituye** por la de una etapa. Etiquetas: «En curso», «Aprobada», «Aprobada en Remedial/Extraordinario N» (`aprobada_en_etapa`), «En remedial» (reprobada, aún sin etapas), «Te toca otra oportunidad» (reprobó la última etapa; el aviso dice cuál sigue) y «Reprobada» (agotó Extraordinario 3). Si el servidor es de una versión anterior (sin `estado`) se ve como antes.
+- **Historial de regularización:** una fila por etapa presentada (calificación publicada, «aprobó» / «no aprobó») que se queda visible aunque ya haya aprobado, con la nota «máximo N y no sustituyen la calificación de tu unidad» (N = `tope`, 8 por `config.tope_regularizacion`).
+- **Sin cambios de servidor en esta versión:** todo viene de las migraciones del 26/nov (`calificaciones_etapa`, `publicar_etapas`, `mis_calificaciones`). El `versionCode` lo pone solo GitHub Actions; **este commit no lleva `[exigir]`**, así que no bloquea exámenes a quien tenga la versión anterior.
+- **Probado** con `node` (7 casos con respuestas reales del servidor); no en un celular.
+
 - **10/oct/2026 (2)** — Asistencias del alumno: la pantalla "Asistencias" de `index.html` ya muestra datos reales (totales por materia y detalle por fecha) con la función `consultar_asistencias`. Nueva tabla `asistencias` con RLS cerrada, llenada desde FullStatus de escritorio con `publicar_asistencias` (solo admins registrados en la tabla `admins`). Regla 12 ampliada.
 - **10/oct/2026** — Renombre a **FullStatus Student** (versión 2.0 de CheckMyKnowledge): `android:label`, `rootProject.name`, título y encabezados de `index.html`, y este README. `applicationId`, `namespace`, carpeta del package y artifact del workflow se conservan. Repo nuevo `FullStatus-Student` con su propio secreto `CMK_FIRMA_SECRETO`.
 - **2/oct/2026 (6)** — Identidad PRISMAL MESH en encabezados y documentación (regla 13).
